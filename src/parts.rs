@@ -8,6 +8,7 @@ use crate::common::byte_data::ByteData;
 use crate::common::component::Component;
 use crate::common::mcu::MCU;
 use crate::common::time::{ Time, PS, NS, US, MS, S };
+use crate::hw::eeprom25lc1024::EEPROM25LC1024;
 use crate::hw::keypad::Keypad;
 use crate::hw::sram23lc1024::SRAM23LC1024;
 use crate::hw::st7920::ST7920;
@@ -24,6 +25,8 @@ const ST7920_PINOUT: &[(&str, &str)] = &[
 const MM74C922_PINOUT: &[(&str, &str)] = &[("17", "D0"), ("16", "D1"), ("15", "D2"), ("14", "D3"), ("12", "DA")];
 // 23LC1024 DIP-8; pin 3 (SIO2) only matters in SQI mode.
 const SRAM23LC1024_PINOUT: &[(&str, &str)] = &[("1", "CS"), ("2", "SO"), ("5", "SI"), ("6", "SCK"), ("7", "HOLD")];
+// 25LC1024 DIP-8.
+const EEPROM25LC1024_PINOUT: &[(&str, &str)] = &[("1", "CS"), ("2", "SO"), ("3", "WP"), ("5", "SI"), ("6", "SCK"), ("7", "HOLD")];
 // Hold time of a key press; a terminal only reports presses.
 const DEFAULT_KEY_HOLD: Time = 130 * MS;
 
@@ -80,6 +83,16 @@ fn parse_time(text: &str) -> Result<Time, String> {
         _ => return Err(format!("{text}: expected a time like 130ms"))
     };
     Ok(number * unit)
+}
+
+// A byte count: "4096", "128K".
+fn parse_bytes(text: &str) -> Result<usize, String> {
+    let (number, unit) = number_unit(text)?;
+    let unit = match unit {
+        "" => 1, "K" => 1024,
+        _ => return Err(format!("{text}: expected a byte count like 131072 or 128K"))
+    };
+    Ok(number as usize * unit)
 }
 
 fn parse_hz(text: &str) -> Result<u64, String> {
@@ -190,6 +203,19 @@ impl PartSpec {
                 self.check_params(&[])?;
                 (Box::new(SRAM23LC1024::new()), SRAM23LC1024_PINOUT)
             },
+            "25LC1024" => {
+                self.check_params(&["image", "offset"])?;
+                let mut eeprom = EEPROM25LC1024::new();
+                if let Some(image) = self.param("image") {
+                    let path = dir.join(image);
+                    let data = std::fs::read(&path).map_err(|err| format!("{}: {err}", path.display()))?;
+                    let offset = self.param("offset").map(parse_bytes).transpose()?.unwrap_or(0);
+                    eeprom.load(&data[offset.min(data.len())..]);
+                } else if self.param("offset").is_some() {
+                    return Err("25LC1024: offset needs image=FILE".into());
+                }
+                (Box::new(eeprom), EEPROM25LC1024_PINOUT)
+            },
             model => return Err(format!("unknown model {model}"))
         };
 
@@ -231,6 +257,9 @@ mod tests {
         assert_eq!(parse_time("130ms"), Ok(130 * MS));
         assert_eq!(parse_hz("4MHz"), Ok(4_000_000));
         assert_eq!(parse_hz("32768"), Ok(32768));
+        assert_eq!(parse_bytes("128K"), Ok(131072));
+        assert_eq!(parse_bytes("7"), Ok(7));
+        assert!(parse_bytes("1M").is_err());
         assert!(parse_time("130").is_err());
         assert_eq!(parse_keys("a:3 space:5"), Ok(vec![(b'a', 3), (b' ', 5)]));
         assert!(parse_keys("ab:3").is_err());
@@ -256,5 +285,24 @@ mod tests {
         assert_eq!(lcd.screen, Some(ScreenOpts { port: Some(5901), scale: 4, rotate: 270 }));
         assert_eq!(err("PIC16F876"), "PIC16F876 needs rom=FILE.hex");
         assert_eq!(err("Z80"), "unknown model Z80");
+    }
+
+    #[test]
+    fn eeprom_takes_an_image() {
+        // Which part of the image each chip gets is checked through SPI by
+        // the TinyStories board test.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("w.bin"), [1, 2, 3]).unwrap();
+        let build = |field: &str| PartSpec::parse(field).unwrap().build(dir.path());
+        let eeprom = build("25LC1024 image=w.bin offset=128K").unwrap();
+        assert_eq!(eeprom.pinout.unwrap()["3"], "WP");
+        assert_eq!(eeprom.component.pins(), ["CS", "SO", "SI", "SCK", "HOLD", "WP"]);
+        assert!(build("25LC1024").is_ok());
+
+        let err = |field: &str| build(field).err().unwrap();
+        assert!(err("25LC1024 image=missing.bin").starts_with(&dir.path().join("missing.bin").display().to_string()));
+        assert_eq!(err("25LC1024 offset=4"), "25LC1024: offset needs image=FILE");
+        assert_eq!(err("25LC1024 image=w.bin offset=1M"), "1M: expected a byte count like 131072 or 128K");
+        assert_eq!(err("25LC1024 image=w.bin size=1"), "25LC1024 has no parameter size");
     }
 }

@@ -23,16 +23,22 @@ undriven, and timing is modelled as delays between events.
 | `ST7920` | 128x64 graphic LCD on a parallel bus, with busy-flag readback |
 | `74C922` | 16-key keypad encoder |
 | `23LC1024` | 128 KB SPI SRAM |
+| `25LC1024` | 128 KB SPI EEPROM, optionally preloaded from a file |
 
 The PIC core has ports A-C and Timer 1. It doesn't emulate interrupts, TMR0,
 TMR2, the watchdog, MSSP, the USART, the ADC or CCP.
 
-Two boards come with it:
+Three boards come with it:
 
 - `boards/tetris`: a PIC playing Tetris (`TETRIS.hex`) on an ST7920 LCD, with
   a 74C922 keypad.
 - `boards/spiram`: a PIC bit-banging SPI to a 23LC1024 and checking what it
   reads back.
+- `boards/tinystories`: the start of a PIC writing children's stories with
+  a tiny language model, its weights in three 25LC1024 EEPROMs. For now
+  its firmware only checks that it can read them; see
+  `tinystories/ROADMAP.md`. It needs the weight image from
+  `tinystories/export.py`.
 
 ## Building
 

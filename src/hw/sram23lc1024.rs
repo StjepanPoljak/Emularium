@@ -255,82 +255,17 @@ impl Component for SRAM23LC1024 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hw::spi_master::{ self, HALF_PERIOD };
 
-    const HALF_PERIOD: Time = 50 * NS;
+    type Master = spi_master::Master<SRAM23LC1024>;
 
-    // Drives the chip's pins as an SPI master (mode 0 unless the clock is
-    // left high), keeping track of the level on SO.
-    struct Master {
-        ram: SRAM23LC1024,
-        now: Time,
-        // Drives of SO, as (time, level), oldest first.
-        so: Vec<(Time, Level)>
-    }
-
-    impl Master {
-        fn new() -> Self {
-            let mut master = Self { ram: SRAM23LC1024::new(), now: 0, so: vec![] };
-            master.set(CS, Level::High);
-            master.set(SCK, Level::Low);
-            master
-        }
-
-        fn set(&mut self, pin: usize, level: Level) {
-            let mut ctx = Ctx::new(self.now);
-            self.ram.input_changed(pin, level, &mut ctx);
-            self.so.extend(ctx.take_drives().into_iter().map(|(pin, level, time)| {
-                assert_eq!(pin, SO);
-                (time, level)
-            }));
-        }
-
-        fn wait(&mut self, time: Time) {
-            self.now += time;
-        }
-
-        fn so_level(&self) -> Level {
-            self.so.iter().filter(|(time, _)| *time <= self.now).last().map_or(Level::Z, |(_, level)| *level)
-        }
-
-        fn xfer(&mut self, byte: u8) -> u8 {
-            let mut read = 0;
-            for bit in (0..8).rev() {
-                self.set(SI, Level::from_bit(byte & (1 << bit) != 0));
-                self.set(SCK, Level::High);
-                read = (read << 1) | self.so_level().is_high() as u8;
-                self.wait(HALF_PERIOD);
-                self.set(SCK, Level::Low);
-                self.wait(HALF_PERIOD);
-            }
-            read
-        }
-
-        // Runs one transaction; returns the bytes read during it.
-        fn transaction(&mut self, bytes: &[u8]) -> Vec<u8> {
-            self.set(CS, Level::Low);
-            self.wait(HALF_PERIOD);
-            let read = bytes.iter().map(|byte| self.xfer(*byte)).collect();
-            self.set(CS, Level::High);
-            self.wait(HALF_PERIOD);
-            read
-        }
-
-        fn write(&mut self, addr: u32, data: &[u8]) {
-            let mut bytes = vec![WRITE, (addr >> 16) as u8, (addr >> 8) as u8, addr as u8];
-            bytes.extend_from_slice(data);
-            self.transaction(&bytes);
-        }
-
-        fn read(&mut self, addr: u32, len: usize) -> Vec<u8> {
-            let mut bytes = vec![READ, (addr >> 16) as u8, (addr >> 8) as u8, addr as u8];
-            bytes.resize(4 + len, 0);
-            self.transaction(&bytes)[4..].to_vec()
-        }
+    fn master() -> Master {
+        Master::new(SRAM23LC1024::new())
     }
 
     #[test]
     fn sequential_write_and_read_back() {
-        let mut m = Master::new();
+        let mut m = master();
         assert_eq!(m.transaction(&[RDMR, 0]), vec![0, MODE_SEQUENTIAL]);
         m.write(0x1234, &[1, 2, 3, 4]);
         assert_eq!(m.read(0x1234, 4), vec![1, 2, 3, 4]);
@@ -340,38 +275,38 @@ mod tests {
 
     #[test]
     fn sequential_mode_wraps_at_end_of_array() {
-        let mut m = Master::new();
+        let mut m = master();
         // The upper 7 address bits are ignored: 0xfffffe is 0x1fffe.
         m.write(0xfffffe, &[1, 2, 3]);
-        assert_eq!(m.ram.mem()[0x1fffe..], [1, 2]);
-        assert_eq!(m.ram.mem()[0], 3);
+        assert_eq!(m.chip.mem()[0x1fffe..], [1, 2]);
+        assert_eq!(m.chip.mem()[0], 3);
         assert_eq!(m.read(0x1ffff, 2), vec![2, 3]);
     }
 
     #[test]
     fn page_mode_wraps_within_page() {
-        let mut m = Master::new();
+        let mut m = master();
         m.transaction(&[WRMR, MODE_PAGE]);
         assert_eq!(m.transaction(&[RDMR, 0, 0]), vec![0, MODE_PAGE, MODE_PAGE]);
         m.write(0x3e, &[1, 2, 3]);
-        assert_eq!(m.ram.mem()[0x20], 3);
-        assert_eq!(m.ram.mem()[0x40], 0);
+        assert_eq!(m.chip.mem()[0x20], 3);
+        assert_eq!(m.chip.mem()[0x40], 0);
         assert_eq!(m.read(0x3f, 2), vec![2, 3]);
     }
 
     #[test]
     fn byte_mode_transfers_one_byte() {
-        let mut m = Master::new();
+        let mut m = master();
         m.write(0x10, &[1, 2]);
         m.transaction(&[WRMR, MODE_BYTE]);
         m.write(0x10, &[7, 8]);
-        assert_eq!(m.ram.mem()[0x10..0x12], [7, 2]);
+        assert_eq!(m.chip.mem()[0x10..0x12], [7, 2]);
         assert_eq!(m.read(0x10, 2), vec![7, 0]);
     }
 
     #[test]
     fn so_follows_falling_edge_after_t_v() {
-        let mut m = Master::new();
+        let mut m = master();
         m.write(0, &[0x80]);
         m.set(CS, Level::Low);
         for byte in [READ, 0, 0, 0] {
@@ -387,7 +322,7 @@ mod tests {
 
     #[test]
     fn mode_3_clock_idles_high() {
-        let mut m = Master::new();
+        let mut m = master();
         m.write(5, &[0xa5]);
         m.set(SCK, Level::High);
         m.set(CS, Level::Low);
@@ -410,7 +345,7 @@ mod tests {
 
     #[test]
     fn hold_pauses_transfer() {
-        let mut m = Master::new();
+        let mut m = master();
         m.write(0, &[0xff]);
         m.set(CS, Level::Low);
         for byte in [READ, 0, 0, 0] {
@@ -428,9 +363,9 @@ mod tests {
 
     #[test]
     fn unknown_command_is_ignored() {
-        let mut m = Master::new();
+        let mut m = master();
         assert_eq!(m.transaction(&[0x42, WRITE, 0, 0, 0, 1]), vec![0; 6]);
-        assert_eq!(m.ram.mem()[0], 0);
+        assert_eq!(m.chip.mem()[0], 0);
         m.write(0, &[9]);
         assert_eq!(m.read(0, 1), vec![9]);
     }

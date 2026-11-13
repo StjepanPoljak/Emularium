@@ -48,6 +48,7 @@ what their schematics do; a test checks this.
 | `ST7920` | `vnc` (port), `scale` (1-16, default 4), `rotate` (0/90/180/270 clockwise) | `RS RW E DB0`-`DB7` |
 | `74C922` | `hold` (`130ms`), `keys` (`{ a = 3, space = 5 }`) | `D0`-`D3 DA` |
 | `23LC1024` | | `CS SO SI SCK HOLD` |
+| `25LC1024` | `image` (file to preload), `offset` (where this chip's 128K starts in it: `131072` or `128K`) | `CS SO SI SCK HOLD WP` |
 
 Keys are one character, or `space`, `enter`, `left`, `right`, `up`,
 `down`.

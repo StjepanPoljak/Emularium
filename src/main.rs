@@ -22,6 +22,8 @@ mod tetris_test;
 mod board_test;
 #[cfg(test)]
 mod spiram_test;
+#[cfg(test)]
+mod tinystories_test;
 
 use crate::board::Board;
 use crate::common::component::Ctx;
