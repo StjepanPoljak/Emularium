@@ -24,6 +24,8 @@ mod board_test;
 mod spiram_test;
 #[cfg(test)]
 mod tinystories_test;
+#[cfg(test)]
+mod tinystories_fw_test;
 
 use crate::board::Board;
 use crate::common::component::Ctx;

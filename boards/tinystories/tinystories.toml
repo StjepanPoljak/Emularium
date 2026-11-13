@@ -5,12 +5,13 @@
 # The EEPROMs hold the weight image from tinystories/export.py, 128K per
 # chip; make it with `cd tinystories && python3 export.py`.
 #
-# The firmware is eeprom_test.asm for now, which checks that the PIC
-# reads all three EEPROMs.
+# The firmware, tinystories.asm, writes stories with the model; it needs
+# data.inc from gen_data.py. eeprom_test.asm is the bring-up test for the
+# three EEPROMs.
 name = "TinyStories"
 
 [parts]
-U1 = { model = "PIC16F876", rom = "eeprom_test.hex", fosc = "20MHz" }
+U1 = { model = "PIC16F876", rom = "tinystories.hex", fosc = "20MHz" }
 U2 = { model = "25LC1024", image = "../../tinystories/out/weights_n1_k0.bin" }
 U3 = { model = "25LC1024", image = "../../tinystories/out/weights_n1_k0.bin", offset = "128K" }
 U4 = { model = "25LC1024", image = "../../tinystories/out/weights_n1_k0.bin", offset = "256K" }
