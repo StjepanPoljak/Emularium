@@ -145,3 +145,18 @@ Some tests call external tools:
 - [docs/ROADMAP.md](docs/ROADMAP.md): where this is going, which is using
   Emularium as a testbed for computer architecture experiments, such as an
   external RAM with the PIC's own RAM as a cache.
+
+## Licence
+
+Copyright © 2026 Stjepan Poljak.
+
+Emularium is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version. See [LICENSE](LICENSE).
+
+If you run a modified Emularium as a network service, the AGPL requires you
+to offer its source code to the people who use it.
+
+Companies that want to use Emularium without the AGPL's terms need a
+commercial licence from the author.
