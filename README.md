@@ -34,11 +34,10 @@ Three boards come with it:
   a 74C922 keypad.
 - `boards/spiram`: a PIC bit-banging SPI to a 23LC1024 and checking what it
   reads back.
-- `boards/tinystories`: the start of a PIC writing children's stories with
-  a tiny language model, its weights in three 25LC1024 EEPROMs. For now
-  its firmware only checks that it can read them; see
-  `tinystories/ROADMAP.md`. It needs the weight image from
-  `tinystories/export.py`.
+- `boards/tinystories`: a PIC running a 260K-parameter language model,
+  its weights in three 25LC1024 EEPROMs, writing children's stories on
+  the LCD; see [docs/TINYSTORIES.md](docs/TINYSTORIES.md). It needs the
+  weight image from `tinystories/export.py`.
 
 ## Building
 
@@ -149,6 +148,7 @@ Some tests call external tools:
 
 - [docs/BOARDS.md](docs/BOARDS.md): board files, models and VNC screens.
 - [docs/SPI_RAM.md](docs/SPI_RAM.md): the 23LC1024, its wiring and its model.
+- [docs/TINYSTORIES.md](docs/TINYSTORIES.md): the TinyStories board and its firmware.
 - [docs/ROADMAP.md](docs/ROADMAP.md): where this is going, which is using
   Emularium as a testbed for computer architecture experiments, such as an
   external RAM with the PIC's own RAM as a cache.
