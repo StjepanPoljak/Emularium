@@ -87,6 +87,6 @@ context grows, attention. The emulator runs it at about real time.
   token with `tinystories/out/vectors_seed1.txt`. 16 positions match.
   `TS_POSITIONS=n` checks more; skipped without `tinystories/out/`.
 - `tinystories_story` (ignored) runs `TS_TOKENS` tokens and saves the
-  screen as a PGM image.
+  screen as a PPM image.
 - `pic_reads_the_weight_eeproms` and `sigrok_decodes_eeprom_traffic` run
   `eeprom_test.asm`, the bring-up firmware, with a made-up image.

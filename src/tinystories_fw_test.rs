@@ -5,7 +5,7 @@
 // skipped when the weight image or the trace is missing.
 //
 // cargo test --release tinystories_fw -- --nocapture
-// TS_POSITIONS=n checks n positions (default 2).
+// TS_POSITIONS=n checks n positions (default 2; 1 in a debug build).
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -154,7 +154,10 @@ fn tinystories_fw_matches_reference() {
         return;
     }
     let vec = vectors();
-    let positions: usize = std::env::var("TS_POSITIONS").ok().and_then(|n| n.parse().ok()).unwrap_or(2);
+    // A position takes about 6 s of simulated time: ~5 s in a release
+    // build, ~50 s in a debug one.
+    let default = if cfg!(debug_assertions) { 1 } else { 2 };
+    let positions: usize = std::env::var("TS_POSITIONS").ok().and_then(|n| n.parse().ok()).unwrap_or(default);
     fw.break_at_checks();
     fw.board.init();
     let (layer_at, grp_at, pos_at, ev_at) = (0x58, 0x59, 0x65, 0x49);
@@ -209,8 +212,8 @@ fn tinystories_fw_matches_reference() {
 }
 
 // Runs the firmware for TS_TOKENS tokens (default 40) with seed TS_SEED
-// (default 1), prints the tokens and saves the LCD as a PGM image to
-// TS_SCREEN (default screen.pgm).
+// (default 1), prints the tokens and saves the LCD as a PPM image to
+// TS_SCREEN (default screen.ppm).
 // cargo test --release tinystories_story -- --ignored --nocapture
 #[test]
 #[ignore]
@@ -240,9 +243,9 @@ fn tinystories_story() {
     let (w, h) = display.size();
     let mut pixels = vec![0u32; w * h];
     display.render(&mut pixels);
-    let mut pgm = format!("P5\n{w} {h}\n255\n").into_bytes();
-    pgm.extend(pixels.iter().map(|p| (p & 0xff) as u8));
-    let path = std::env::var("TS_SCREEN").unwrap_or("screen.pgm".to_string());
-    std::fs::write(&path, pgm).unwrap();
+    let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+    ppm.extend(pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+    let path = std::env::var("TS_SCREEN").unwrap_or("screen.ppm".to_string());
+    std::fs::write(&path, ppm).unwrap();
     println!("screen: {path}");
 }

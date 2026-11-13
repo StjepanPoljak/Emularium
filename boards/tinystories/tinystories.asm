@@ -781,9 +781,11 @@ FFN_ABS:
 	andlw	0x3F
 	movwf	T0
 	FREAD	SIGMOID, T0
-	addlw	128
-	movwf	B0
 	clrf	B1
+	addlw	128			; the table holds s - 128; s can be 256
+	movwf	B0
+	btfsc	STATUS,C
+	incf	B1,F
 	goto	FFN_SIG_SIGN
 FFN_SIG_ONE:
 	clrf	B0
