@@ -70,5 +70,8 @@ pub trait Component {
     fn as_display_mut(&mut self) -> Option<&mut dyn Display> { None }
 
     fn as_key_input(&self) -> Option<&dyn KeyInput> { None }
+
+    // The contents of a memory chip, for tests and debugging.
+    fn memory(&self) -> Option<&[u8]> { None }
     fn as_key_input_mut(&mut self) -> Option<&mut dyn KeyInput> { None }
 }

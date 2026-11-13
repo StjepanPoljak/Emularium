@@ -201,6 +201,10 @@ impl SRAM23LC1024 {
 impl Component for SRAM23LC1024 {
     fn init(&mut self) { }
 
+    fn memory(&self) -> Option<&[u8]> {
+        Some(&self.mem)
+    }
+
     fn pins(&self) -> &[&'static str] {
         &PINS
     }
