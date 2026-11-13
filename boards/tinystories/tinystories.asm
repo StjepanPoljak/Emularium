@@ -153,6 +153,10 @@ P_OFSL	EQU	LAYER
 P_OFSH	EQU	GRP
 P_IL	EQU	HQ
 P_IH	EQU	BFPS
+P_K2	EQU	E0			; word wrap: last space, tail length, index
+P_N	EQU	QE
+P_I2	EQU	KE
+P_PEND	EQU	VE			; the character PUTC is printing
 
 ; Working arrays (FSR; IRP 0 = banks 0/1, 1 = banks 2/3)
 WQ	EQU	0xA0			; q, 16 x 24 bit (bank 1)
@@ -165,6 +169,7 @@ H1	EQU	0xA0			; FFN (bank 1)
 H3	EQU	0xA3
 RNG	EQU	0xEC			; xorshift32 state (bank 1)
 TXTBUF	EQU	0x110			; a text line (bank 2)
+TAILBUF	EQU	0x130			; a word moving to the next line (bank 2)
 
 	#include "fw_macros.inc"
 

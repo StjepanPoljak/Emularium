@@ -267,22 +267,28 @@ NEWLINE:
 	clrf	P_TOP
 	goto	REDRAW
 
-; Prints character W.
+; Prints character W. A space that doesn't fit is dropped; a word that
+; doesn't fit moves to the next line (WRAP_WORD).
 PUTC:
-	movwf	P_CH
+	movwf	P_PEND
 	xorlw	10
 	btfsc	STATUS,Z
 	goto	NEWLINE
 	movlw	32
 	subwf	P_COL,W
 	btfss	STATUS,C
-	goto	PUTC_FITS
-	call	NEWLINE
-	movf	P_CH,W			; no space at the start of a line
+	goto	PUTC_PEND
+	movf	P_PEND,W
 	xorlw	' '
 	btfsc	STATUS,Z
-	return
-PUTC_FITS:
+	goto	NEWLINE
+	call	WRAP_WORD
+PUTC_PEND:
+	movf	P_PEND,W
+
+; Stores character W at P_COL of the current line and draws it.
+PUTC_RAW:
+	movwf	P_CH
 	movf	P_CUR,W
 	call	TXT_ADDR
 	movf	P_COL,W
@@ -293,11 +299,7 @@ PUTC_FITS:
 	C0	SPI_CLOSE
 	movf	P_CUR,W
 	call	LOAD_LINE
-	movf	P_TOP,W			; P_K = (P_CUR - P_TOP) mod 10
-	subwf	P_CUR,W
-	btfss	STATUS,C
-	addlw	10
-	movwf	P_K
+	call	CUR_K
 	rrf	P_COL,W
 	movwf	P_W
 	rrf	P_W,F
@@ -305,6 +307,107 @@ PUTC_FITS:
 	andwf	P_W,F
 	call	RENDER_WORD
 	incf	P_COL,F
+	return
+
+; P_K = the screen line of the current line, (P_CUR - P_TOP) mod 10.
+CUR_K:
+	movf	P_TOP,W
+	subwf	P_CUR,W
+	btfss	STATUS,C
+	addlw	10
+	movwf	P_K
+	return
+
+; The current line is full: if it has a space, the characters after the
+; last one go to a new line (blanked and redrawn on this one); otherwise
+; just a new line.
+WRAP_WORD:
+	movf	P_CUR,W
+	call	LOAD_LINE
+	movlw	31
+	movwf	P_K2
+WRAP_FIND:
+	bsf	STATUS,IRP
+	movf	P_K2,W
+	addlw	LOW (TXTBUF)
+	movwf	FSR
+	movf	INDF,W
+	xorlw	' '
+	btfsc	STATUS,Z
+	goto	WRAP_FOUND
+	decf	P_K2,F
+	btfss	P_K2,7
+	goto	WRAP_FIND
+	goto	NEWLINE			; no space: break the word
+WRAP_FOUND:
+	movf	P_K2,W
+	xorlw	31
+	btfsc	STATUS,Z
+	goto	NEWLINE
+	; move TXTBUF[k + 1 ..] to TAILBUF and blank it
+	clrf	P_N
+WRAP_COPY:
+	incf	P_K2,W
+	addwf	P_N,W
+	addlw	LOW (TXTBUF)
+	movwf	FSR
+	movf	INDF,W
+	movwf	T1
+	movlw	' '
+	movwf	INDF
+	movf	P_N,W
+	addlw	LOW (TAILBUF)
+	movwf	FSR
+	movf	T1,W
+	movwf	INDF
+	incf	P_N,F
+	incf	P_K2,W
+	addwf	P_N,W
+	xorlw	32
+	btfss	STATUS,Z
+	goto	WRAP_COPY
+	; write the line back and redraw its last words
+	movf	P_CUR,W
+	call	TXT_ADDR
+	C0	SR_OPEN_WR
+	bsf	STATUS,IRP
+	movlw	LOW (TXTBUF)
+	movwf	FSR
+WRAP_WRITE:
+	movf	INDF,W
+	C0	SPI_WR
+	incf	FSR,F
+	movf	FSR,W
+	xorlw	LOW (TXTBUF) + 32
+	btfss	STATUS,Z
+	goto	WRAP_WRITE
+	C0	SPI_CLOSE
+	call	CUR_K
+	incf	P_K2,W			; from the word holding column k + 1
+	movwf	P_W
+	rrf	P_W,F
+	rrf	P_W,F
+	movlw	0x07
+	andwf	P_W,F
+WRAP_REDRAW:
+	call	RENDER_WORD
+	incf	P_W,F
+	btfss	P_W,3
+	goto	WRAP_REDRAW
+	call	NEWLINE
+	clrf	P_I2			; the word on the new line
+WRAP_PUT:
+	bsf	STATUS,IRP
+	movf	P_I2,W
+	addlw	LOW (TAILBUF)
+	movwf	FSR
+	movf	INDF,W
+	call	PUTC_RAW
+	incf	P_I2,F
+	movf	P_I2,W
+	xorwf	P_N,W
+	btfss	STATUS,Z
+	goto	WRAP_PUT
 	return
 
 ; Text state (P_TOP, P_CUR, P_COL) to and from SRAM.
