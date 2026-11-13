@@ -40,6 +40,20 @@ LCD_E = ["U1.RA2", "J1.E"]
 `boards/tetris/tetris.toml` and `boards/spiram/spiram.toml` wire exactly
 what their schematics do; a test checks this.
 
+## Diagrams
+
+`tools/schematic.py` draws a board file as a block diagram with Graphviz:
+parts as boxes, one line per pair of parts listing the nets and pins it
+carries, and a hub for nets shared by three or more parts (an SPI bus) or
+for a power rail:
+
+```sh
+tools/schematic.py boards/tinystories/tinystories.toml           # -> tinystories.svg
+tools/schematic.py boards/tetris/tetris.toml -o tetris.png
+```
+
+Each board directory has its diagram as `NAME.svg`.
+
 ## Models
 
 | model | parameters | pins |
