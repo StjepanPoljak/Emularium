@@ -1,5 +1,5 @@
 [package]
-name = "pic16f876"
+name = "emularium"
 version = "0.1.0"
 edition = "2024"
 

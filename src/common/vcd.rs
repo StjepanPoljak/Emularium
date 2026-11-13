@@ -49,7 +49,7 @@ impl Vcd {
     // Writes the header. signals are (name, nets LSB first); net_count is
     // the number of nets on the board.
     pub fn new(mut out: Box<dyn Write>, signals: &[(String, Vec<usize>)], net_count: usize) -> io::Result<Self> {
-        writeln!(out, "$version pic16f876 board $end")?;
+        writeln!(out, "$version emularium board $end")?;
         writeln!(out, "$timescale 1ps $end")?;
         writeln!(out, "$scope module board $end")?;
         let mut net_signals = vec![vec![]; net_count];

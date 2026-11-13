@@ -147,7 +147,7 @@ impl Write for SharedBuf {
     fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
 
-const VCD_HEADER: &str = "$version pic16f876 board $end
+const VCD_HEADER: &str = "$version emularium board $end
 $timescale 1ps $end
 $scope module board $end
 ";

@@ -52,7 +52,7 @@ fn main() {
     }
 }
 
-// Usage: pic16f876 [BOARD] [--check] [--vcd FILE [NET_OR_BUS...]]
+// Usage: emularium [BOARD] [--check] [--vcd FILE [NET_OR_BUS...]]
 // BOARD is a KiCad schematic (.kicad_sch) or netlist (.net).
 // --check prints how the board was loaded and exits.
 // --vcd writes a VCD trace of the named nets and buses, or of all of them.
