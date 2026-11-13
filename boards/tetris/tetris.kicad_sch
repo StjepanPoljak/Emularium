@@ -4051,7 +4051,7 @@
 				(hide yes)
 			)
 		)
-		(property "Emu" "ST7920"
+		(property "Emu" "ST7920 rotate=270"
 			(at 254 138.43 0)
 			(effects
 				(font

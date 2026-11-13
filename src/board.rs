@@ -1,7 +1,7 @@
 use std::io::{ self, Write };
 use std::fmt;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{ channel, Receiver };
 use std::collections::{ VecDeque, BinaryHeap };
 use std::cmp::Reverse;
 use std::time::{ Duration, Instant };
@@ -9,11 +9,13 @@ use std::time::{ Duration, Instant };
 use crate::SIGINT;
 use crate::common::component::{ Component, Ctx };
 use crate::common::net::Level;
-use crate::common::term::{ init_term, draw, present, KeyEvent };
 use crate::common::time::{ Time, NS };
 use crate::common::vcd::Vcd;
+use crate::screen::ScreenOpts;
+use crate::vnc::VncServer;
 
 // Board::run checks the throttle and the frame timer every SYNC_STEPS steps.
+// Displays are sent to their viewers once per FRAME_TIME.
 const SYNC_STEPS: u32 = 1_000;
 const FRAME_TIME: Duration = Duration::from_millis(16);
 // When the host falls further behind real time than this, stop catching up.
@@ -62,6 +64,16 @@ pub struct Net {
     level: Level
 }
 
+// A display shown over VNC.
+struct Screen {
+    bc_idx: usize,
+    opts: ScreenOpts,
+    // The display's pixels, and the rotated and scaled picture.
+    pixels: Vec<u32>,
+    picture: Vec<u32>,
+    server: Option<VncServer>
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum EventKind {
     // A clocked component's next step is due.
@@ -79,10 +91,11 @@ pub struct Board {
     buses: Vec<(String, Vec<usize>)>,
     vcd: Option<Vcd>,
     contentions: u64,
-    needs_term: bool,
-    term_rx: Option<Receiver<KeyEvent>>,
-    events: VecDeque<KeyEvent>,
-    headless: bool,
+    name: String,
+    screens: Vec<Screen>,
+    // Key presses from VNC viewers, and those not yet handed to a keypad.
+    key_rx: Option<Receiver<u8>>,
+    keys: VecDeque<u8>,
     // Pending events, ordered by time, then by insertion order (seq).
     queue: BinaryHeap<Reverse<(Time, u64, EventKind)>>,
     seq: u64,
@@ -92,8 +105,72 @@ pub struct Board {
 
 impl Board {
     pub fn new() -> Self {
-        Self { components: vec![], nets: vec![], buses: vec![], vcd: None, contentions: 0, needs_term: false, term_rx: None, events: VecDeque::new(), headless: false,
-               queue: BinaryHeap::new(), seq: 0, now: 0, realtime: false }
+        Self { components: vec![], nets: vec![], buses: vec![], vcd: None, contentions: 0, name: "board".to_string(),
+               screens: vec![], key_rx: None, keys: VecDeque::new(), queue: BinaryHeap::new(), seq: 0, now: 0, realtime: false }
+    }
+
+    // Shown in VNC viewers' title bars.
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_string();
+    }
+
+    // Shows a display component over VNC once serve_screens() is called.
+    pub fn add_screen(&mut self, bc_idx: usize, opts: ScreenOpts) {
+        let display = self.components[bc_idx].component.as_display().expect("add_screen() needs a display");
+        let (width, height) = display.size();
+        let (out_w, out_h) = opts.out_size(width, height);
+        self.screens.push(Screen { bc_idx, opts, pixels: vec![0; width * height], picture: vec![0; out_w * out_h], server: None });
+    }
+
+    // Starts a VNC server for each screen: on its own port if it has one,
+    // else on the first free port from 5900 up. Key presses from any viewer
+    // go to the keypads. Returns "NAME: port" for each screen.
+    pub fn serve_screens(&mut self) -> io::Result<Vec<String>> {
+        let (tx, rx) = channel();
+        self.key_rx = Some(rx);
+        let taken: Vec<u16> = self.screens.iter().filter_map(|screen| screen.opts.port).collect();
+        let mut next_port = 5900;
+        let mut served = vec![];
+        for screen in &mut self.screens {
+            let display = self.components[screen.bc_idx].component.as_display().unwrap();
+            let (width, height) = screen.opts.out_size(display.size().0, display.size().1);
+            let name = &self.components[screen.bc_idx].name;
+            let title = format!("{} {name}", self.name);
+            let server = match screen.opts.port {
+                Some(port) => VncServer::start(&title, port, width, height, tx.clone())?,
+                None => loop {
+                    let port = next_port;
+                    next_port += 1;
+                    if taken.contains(&port) {
+                        continue;
+                    }
+                    match VncServer::start(&title, port, width, height, tx.clone()) {
+                        Ok(server) => break server,
+                        Err(err) if err.kind() == io::ErrorKind::AddrInUse && next_port < 6000 => continue,
+                        Err(err) => return Err(err)
+                    }
+                }
+            };
+            served.push(format!("{name}: localhost:{} ({width}x{height})", server.port));
+            screen.server = Some(server);
+        }
+        self.present();
+        Ok(served)
+    }
+
+    // Sends the displays that changed to their viewers.
+    fn present(&mut self) {
+        for screen in &mut self.screens {
+            let Some(server) = &screen.server else {
+                continue;
+            };
+            let display = self.components[screen.bc_idx].component.as_display_mut().unwrap();
+            let (width, height) = display.size();
+            if display.render(&mut screen.pixels) {
+                screen.opts.transform(&screen.pixels, width, height, &mut screen.picture);
+                server.publish(&screen.picture);
+            }
+        }
     }
 
     // Makes run() sleep so that simulated time follows wall-clock time.
@@ -102,15 +179,10 @@ impl Board {
         self.realtime = realtime;
     }
 
-    // No terminal, no drawing; input is fed through push_key().
-    #[allow(unused)]
-    pub fn new_headless() -> Self {
-        Self { headless: true, ..Self::new() }
-    }
-
+    // Queues a key press for the keypads, as a VNC viewer does.
     #[allow(unused)]
     pub fn push_key(&mut self, key: u8) {
-        self.events.push_back(KeyEvent::Key(key));
+        self.keys.push_back(key);
     }
 
     #[allow(unused)]
@@ -129,11 +201,23 @@ impl Board {
         self.nets.iter().find(|net| net.name == name).map(|net| net.level)
     }
 
+    // The pins on a net, as "NAME.PIN".
+    #[allow(unused)]
+    pub fn pins_of(&self, net: &str) -> Option<Vec<String>> {
+        let net = self.nets.iter().find(|n| n.name == net)?;
+        Some(net.pins.iter().map(|(bc_idx, pin)| {
+            let bc = &self.components[*bc_idx];
+            format!("{}.{}", bc.name, bc.component.pins()[*pin])
+        }).collect())
+    }
+
+    #[allow(unused)]
+    pub fn net_names(&self) -> Vec<String> {
+        self.nets.iter().map(|net| net.name.clone()).collect()
+    }
+
     // The name is used to refer to the component's pins, as "NAME.PIN".
     pub fn add_component(&mut self, name: &str, component: Box<dyn Component>) -> usize {
-        if let Some(_) = component.as_display() {
-            self.needs_term = true;
-        }
         let pins = component.pins().iter()
             .map(|_| PinState { net: None, drive: Level::Z, scheduled: Level::Z }).collect();
         self.components.push(BoardComponent { name: name.to_string(), component, breakpoints: vec![], pins });
@@ -241,9 +325,6 @@ impl Board {
                 self.schedule(self.now, EventKind::Clock(bc_idx));
             }
         }
-        if self.needs_term && !self.headless {
-            self.term_rx = Some(init_term(unsafe { libc::pthread_self() }));
-        }
     }
 
     #[allow(unused)]
@@ -275,7 +356,6 @@ impl Board {
             state.scheduled = level;
             self.schedule(time, EventKind::Drive(bc_idx, pin, level));
         }
-        self.redraw(bc_idx);
     }
 
     // Applies a pin's new drive level and, if the net's level changes,
@@ -304,29 +384,18 @@ impl Board {
         }
     }
 
-    fn redraw(&mut self, bc_idx: usize) {
-        if self.headless {
-            return;
-        }
-        if let Some(display) = self.components[bc_idx].component.as_display_mut() {
-            display.redraw(draw);
-        }
-    }
-
     // Handles every event due at the next event time, which becomes the
     // current time. Returns true when an MCU reached a breakpoint.
     pub fn step(&mut self) -> bool {
-        if let Some(rx) = &self.term_rx {
-            while let Ok(event) = rx.try_recv() {
-                self.events.push_back(event);
-            }
+        if let Some(rx) = &self.key_rx {
+            self.keys.extend(rx.try_iter());
         }
 
         for bc_idx in 0..self.components.len() {
             if self.components[bc_idx].component.as_key_input().is_none() {
                 continue;
             }
-            if let Some(KeyEvent::Key(key)) = self.events.pop_front() {
+            if let Some(key) = self.keys.pop_front() {
                 self.dispatch(bc_idx, |c, ctx| c.as_key_input_mut().unwrap().get_key(key, ctx));
             }
         }
@@ -375,7 +444,6 @@ impl Board {
     }
 
     pub fn run(&mut self) {
-        let draws = self.needs_term && !self.headless;
         let mut last_frame = Instant::now();
         // Wall-clock time at which the simulated time was sync_now.
         let (mut sync_time, mut sync_now) = (Instant::now(), self.now);
@@ -387,9 +455,7 @@ impl Board {
             }
 
             if self.step() {
-                if draws {
-                    present();
-                }
+                self.present();
                 println!("Got breakpoint!");
                 break;
             }
@@ -409,8 +475,8 @@ impl Board {
                 }
             }
 
-            if draws && last_frame.elapsed() >= FRAME_TIME {
-                present();
+            if last_frame.elapsed() >= FRAME_TIME {
+                self.present();
                 last_frame = Instant::now();
             }
         }

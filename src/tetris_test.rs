@@ -12,7 +12,7 @@ const PLAYERROTATION: usize = 0x6f;
 
 // Loads the Tetris schematic; returns the PIC's index.
 fn load_tetris(board: &mut Board) -> usize {
-    crate::kicad::load(board, Path::new(DEFAULT_BOARD)).unwrap();
+    crate::loader::load(board, Path::new(DEFAULT_BOARD)).unwrap();
     board.find_component("U1").unwrap()
 }
 
@@ -23,7 +23,7 @@ struct Tetris {
 
 impl Tetris {
     fn new() -> Self {
-        let mut board = Board::new_headless();
+        let mut board = Board::new();
         let pic_idx = load_tetris(&mut board);
         board.init();
 
@@ -148,7 +148,7 @@ fn lcd_writes(vcd: &str) -> Vec<(Time, char, u8)> {
 
 #[test]
 fn vcd_shows_lcd_setup() {
-    let mut board = Board::new_headless();
+    let mut board = Board::new();
     load_tetris(&mut board);
     let buf = SharedBuf::default();
     board.trace(Box::new(buf.clone()), &["LCD_RS", "LCD_RW", "LCD_E", "LCD_DB"]).unwrap();

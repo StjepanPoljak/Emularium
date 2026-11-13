@@ -1,7 +1,7 @@
 use std::io::BufWriter;
 use std::path::Path;
 use std::fs::File;
-use std::sync::atomic::{ Ordering, AtomicU64, AtomicBool };
+use std::sync::atomic::{ Ordering, AtomicBool };
 
 static SIGINT: AtomicBool = AtomicBool::new(false);
 
@@ -9,7 +9,12 @@ mod pic;
 mod common;
 mod hw;
 mod board;
+mod boardfile;
 mod kicad;
+mod loader;
+mod parts;
+mod screen;
+mod vnc;
 
 #[cfg(test)]
 mod tetris_test;
@@ -21,12 +26,14 @@ mod spiram_test;
 use crate::board::Board;
 use crate::common::component::Ctx;
 
-const DEFAULT_BOARD: &str = "boards/tetris/tetris.kicad_sch";
-
-static MAIN_TID: AtomicU64 = AtomicU64::new(0);
+const DEFAULT_BOARD: &str = "boards/tetris/tetris.toml";
 
 pub trait Display {
-    fn redraw(&mut self, draw: fn(u16, u16, bool));
+    // Width and height in pixels.
+    fn size(&self) -> (usize, usize);
+    // If the screen changed since the last call, writes it to pixels as
+    // 0xRRGGBB, row-major, and returns true.
+    fn render(&mut self, pixels: &mut [u32]) -> bool;
 }
 
 pub trait KeyInput {
@@ -53,7 +60,8 @@ fn main() {
 }
 
 // Usage: emularium [BOARD] [--check] [--vcd FILE [NET_OR_BUS...]]
-// BOARD is a KiCad schematic (.kicad_sch) or netlist (.net).
+// BOARD is a board file (.toml), a KiCad schematic (.kicad_sch) or netlist
+// (.net). Each display is served over VNC; Ctrl+C stops.
 // --check prints how the board was loaded and exits.
 // --vcd writes a VCD trace of the named nets and buses, or of all of them.
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,7 +82,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut board = Board::new();
     let path = path.unwrap_or(DEFAULT_BOARD);
-    let report = kicad::load(&mut board, Path::new(path))?;
+    let report = loader::load(&mut board, Path::new(path))?;
     if check {
         println!("{report}");
         return Ok(());
@@ -85,6 +93,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     board.set_realtime(true);
     board.init();
+    for screen in board.serve_screens()? {
+        println!("VNC {screen}");
+    }
+    println!("Running {path}; Ctrl+C stops.");
 
     unsafe { install_interrupt_signal() };
     board.run();

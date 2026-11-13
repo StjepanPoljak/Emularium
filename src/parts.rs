@@ -1,6 +1,6 @@
-// The Emu field of a schematic symbol: which model emulates the part, with
-// its parameters, e.g. `PIC16F876 rom=TETRIS.hex fosc=4MHz` or
-// `74C922 pins="1:D0 2:D1" keys="a:3 space:5"`.
+// Which model emulates a part, with its parameters: a [parts] entry of a
+// board file, or the Emu field of a KiCad symbol, e.g.
+// `PIC16F876 rom=TETRIS.hex fosc=4MHz` or `74C922 keys="a:3 space:5"`.
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -12,6 +12,7 @@ use crate::hw::keypad::Keypad;
 use crate::hw::sram23lc1024::SRAM23LC1024;
 use crate::hw::st7920::ST7920;
 use crate::pic::pic16f876::PIC16F876;
+use crate::screen::ScreenOpts;
 
 // ST7920 12864 LCD module header.
 const ST7920_PINOUT: &[(&str, &str)] = &[
@@ -26,7 +27,7 @@ const SRAM23LC1024_PINOUT: &[(&str, &str)] = &[("1", "CS"), ("2", "SO"), ("5", "
 // Hold time of a key press; a terminal only reports presses.
 const DEFAULT_KEY_HOLD: Time = 130 * MS;
 
-pub struct Emu {
+pub struct PartSpec {
     pub model: String,
     params: Vec<(String, String)>
 }
@@ -35,7 +36,9 @@ pub struct Model {
     pub component: Box<dyn Component>,
     // Symbol pin number -> component pin name. Without it, pins are matched
     // by name.
-    pub pinout: Option<HashMap<String, String>>
+    pub pinout: Option<HashMap<String, String>>,
+    // How to show it, for a display.
+    pub screen: Option<ScreenOpts>
 }
 
 // Splits on whitespace; double quotes group words, as in keys="a:3 d:4".
@@ -88,21 +91,33 @@ fn parse_hz(text: &str) -> Result<u64, String> {
     Ok(number * unit)
 }
 
+// Key codes for keys that aren't characters.
+pub const KEY_LEFT: u8 = 0x81;
+pub const KEY_RIGHT: u8 = 0x82;
+pub const KEY_UP: u8 = 0x83;
+pub const KEY_DOWN: u8 = 0x84;
+const NAMED_KEYS: &[(&str, u8)] = &[("space", b' '), ("enter", b'\r'), ("left", KEY_LEFT),
+    ("right", KEY_RIGHT), ("up", KEY_UP), ("down", KEY_DOWN)];
+
 // "a:3 space:5" -> key a gives code 3, the space bar code 5.
 fn parse_keys(text: &str) -> Result<Vec<(u8, u8)>, String> {
     words(text)?.iter().map(|entry| {
         let (key, code) = entry.split_once(':').ok_or_else(|| format!("{entry}: expected KEY:CODE"))?;
-        let key = match key {
-            "space" => b' ',
-            key if key.len() == 1 => key.as_bytes()[0],
-            _ => return Err(format!("{entry}: a key is one character or space"))
+        let key = match NAMED_KEYS.iter().find(|(name, _)| *name == key) {
+            Some((_, code)) => *code,
+            None if key.len() == 1 => key.as_bytes()[0],
+            None => return Err(format!("{entry}: a key is one character, space, enter, left, right, up or down"))
         };
         let code = code.parse().ok().filter(|code| *code < 16).ok_or_else(|| format!("{entry}: code must be 0..15"))?;
         Ok((key, code))
     }).collect()
 }
 
-impl Emu {
+impl PartSpec {
+    pub fn new(model: &str, params: Vec<(String, String)>) -> Self {
+        Self { model: model.to_string(), params }
+    }
+
     pub fn parse(field: &str) -> Result<Self, String> {
         let mut words = words(field)?.into_iter();
         let model = words.next().ok_or("empty Emu field")?;
@@ -124,8 +139,27 @@ impl Emu {
         }
     }
 
-    // Builds the model. Paths are relative to dir, the schematic's directory.
+    // Display options: vnc=PORT, scale=N, rotate=0|90|180|270 (clockwise).
+    fn screen_opts(&self) -> Result<ScreenOpts, String> {
+        let number = |key: &str| self.param(key).map(|value| value.parse::<u16>()
+            .map_err(|_| format!("{key}={value}: expected a number"))).transpose();
+        let mut opts = ScreenOpts::default();
+        opts.port = number("vnc")?;
+        if let Some(scale) = number("scale")? {
+            opts.scale = scale.clamp(1, 16) as usize;
+        }
+        if let Some(rotate) = number("rotate")? {
+            if rotate % 90 != 0 || rotate >= 360 {
+                return Err(format!("rotate={rotate}: expected 0, 90, 180 or 270"));
+            }
+            opts.rotate = rotate;
+        }
+        Ok(opts)
+    }
+
+    // Builds the model. Paths are relative to dir, the board file's directory.
     pub fn build(&self, dir: &Path) -> Result<Model, String> {
+        let mut screen = None;
         let (component, pinout): (Box<dyn Component>, &[(&str, &str)]) = match self.model.as_str() {
             "PIC16F876" => {
                 self.check_params(&["rom", "fosc"])?;
@@ -140,7 +174,8 @@ impl Emu {
                 (Box::new(pic), &[])
             },
             "ST7920" => {
-                self.check_params(&[])?;
+                self.check_params(&["vnc", "scale", "rotate"])?;
+                screen = Some(self.screen_opts()?);
                 (Box::new(ST7920::new()), ST7920_PINOUT)
             },
             "74C922" => {
@@ -172,7 +207,7 @@ impl Emu {
             None if pinout.is_empty() => None,
             None => Some(pinout.iter().map(|(number, name)| (number.to_string(), name.to_string())).collect())
         };
-        Ok(Model { component, pinout })
+        Ok(Model { component, pinout, screen })
     }
 }
 
@@ -182,13 +217,13 @@ mod tests {
 
     #[test]
     fn parses_model_and_quoted_params() {
-        let emu = Emu::parse(r#"74C922  pins="1:D0 2:D1" hold=5ms"#).unwrap();
+        let emu = PartSpec::parse(r#"74C922  pins="1:D0 2:D1" hold=5ms"#).unwrap();
         assert_eq!(emu.model, "74C922");
         assert_eq!(emu.param("pins"), Some("1:D0 2:D1"));
         assert_eq!(emu.param("hold"), Some("5ms"));
-        assert_eq!(Emu::parse("").err().unwrap(), "empty Emu field");
-        assert_eq!(Emu::parse("X a").err().unwrap(), "a: expected KEY=VALUE");
-        assert_eq!(Emu::parse("X a=\"b").err().unwrap(), "unterminated quote");
+        assert_eq!(PartSpec::parse("").err().unwrap(), "empty Emu field");
+        assert_eq!(PartSpec::parse("X a").err().unwrap(), "a: expected KEY=VALUE");
+        assert_eq!(PartSpec::parse("X a=\"b").err().unwrap(), "unterminated quote");
     }
 
     #[test]
@@ -199,22 +234,26 @@ mod tests {
         assert!(parse_time("130").is_err());
         assert_eq!(parse_keys("a:3 space:5"), Ok(vec![(b'a', 3), (b' ', 5)]));
         assert!(parse_keys("ab:3").is_err());
+        assert_eq!(parse_keys("left:1 enter:2"), Ok(vec![(KEY_LEFT, 1), (b'\r', 2)]));
         assert!(parse_keys("a:16").is_err());
     }
 
     #[test]
     fn builds_models_with_pinouts() {
-        let lcd = Emu::parse("ST7920").unwrap().build(Path::new(".")).unwrap();
+        let lcd = PartSpec::parse("ST7920").unwrap().build(Path::new(".")).unwrap();
         assert_eq!(lcd.pinout.unwrap()["4"], "RS");
-        let ram = Emu::parse("23LC1024").unwrap().build(Path::new(".")).unwrap();
+        let ram = PartSpec::parse("23LC1024").unwrap().build(Path::new(".")).unwrap();
         assert_eq!(ram.pinout.unwrap()["6"], "SCK");
 
-        let keypad = Emu::parse(r#"74C922 pins="3:DA""#).unwrap().build(Path::new(".")).unwrap();
+        let keypad = PartSpec::parse(r#"74C922 pins="3:DA""#).unwrap().build(Path::new(".")).unwrap();
         assert_eq!(keypad.pinout.unwrap(), HashMap::from([("3".to_string(), "DA".to_string())]));
 
-        let err = |field: &str| Emu::parse(field).unwrap().build(Path::new(".")).err().unwrap();
+        let err = |field: &str| PartSpec::parse(field).unwrap().build(Path::new(".")).err().unwrap();
         assert_eq!(err("74C922 pins=\"3:Q\""), "74C922 has no pin Q");
         assert_eq!(err("ST7920 fosc=1MHz"), "ST7920 has no parameter fosc");
+        assert_eq!(err("ST7920 rotate=45"), "rotate=45: expected 0, 90, 180 or 270");
+        let lcd = PartSpec::parse("ST7920 vnc=5901 rotate=270").unwrap().build(Path::new(".")).unwrap();
+        assert_eq!(lcd.screen, Some(ScreenOpts { port: Some(5901), scale: 4, rotate: 270 }));
         assert_eq!(err("PIC16F876"), "PIC16F876 needs rom=FILE.hex");
         assert_eq!(err("Z80"), "unknown model Z80");
     }

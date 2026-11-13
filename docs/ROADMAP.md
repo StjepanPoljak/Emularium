@@ -20,6 +20,12 @@ delays between digital events, such as "SRAM data valid 55 ns after OE falls".
 
 ## Where things stand
 
+Update 2026-11-13: boards are TOML files loaded at run time
+(`boards/*/NAME.toml`, default `boards/tetris/tetris.toml`; format in
+`docs/BOARDS.md`). Displays are served over VNC, one port each, instead of
+drawn in the terminal; keys come from the VNC viewers. KiCad schematics
+still load. The TinyStories plans are in `tinystories/ROADMAP.md`.
+
 Update 2026-10-23: phase 4 is done, with SPI. The external RAM is a
 Microchip 23LC1024 (128K x 8, 5 V, DIP-8), bit-banged by the PIC on
 `boards/spiram` (no LCD). The part, the wiring and the model are described in
@@ -28,7 +34,7 @@ environment, and all tests pass there, including the gpsim comparisons.
 
 Update 2026-10-19: phases 1-3 are done. Trace with
 `cargo run -- --vcd out.vcd [NET_OR_BUS...]` (no names: every net and bus),
-quit with Ctrl+A x to flush the file. A Tetris run writes about 1.5 MB per
+quit with Ctrl+C (Ctrl+A x before VNC) to flush the file. A Tetris run writes about 1.5 MB per
 simulated second with all signals. The LCD setup is at ~1.04-1.06 s. The
 sections below describe the board before phases 1-2.
 

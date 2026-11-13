@@ -2,7 +2,6 @@ use crate::Display;
 use crate::common::byte_data::ByteData;
 use crate::common::component::{ Component, Ctx };
 use crate::common::net::Level;
-use crate::common::term::term_size;
 
 const PINS: [&str; 11] = ["RS", "RW", "E", "DB0", "DB1", "DB2", "DB3", "DB4", "DB5", "DB6", "DB7"];
 const RW: usize = 1;
@@ -14,19 +13,11 @@ const DB0: usize = 3;
 // flag, and polls with RS = 1 when writing data. Answer every read with it.
 const READ_VALUE: u8 = 0x80;
 
-fn draw_rot(ha: u16, va: u16, state: bool, draw_raw: fn(u16, u16, bool)) {
-    let (width, height) = term_size();
-    let (w_pos, h_pos) = ((width / 2).saturating_sub(8), (height / 2).saturating_sub(16));
-
-    if ha / 4 > 32 {
-        if va < 8 {
-            draw_raw(w_pos + (va + 8) as u16, h_pos + 32 - ((ha / 4) - 32) as u16, state);
-        }
-    } else if ha / 4 < 64 {
-        draw_raw(w_pos + va as u16, h_pos + 32 - (ha / 4) as u16, state);
-    }
-}
-
+// Colours of a blue ST7920 module: lit pixels are white.
+const BACKGROUND: u32 = 0x2848b8;
+const LIT: u32 = 0xe8f0ff;
+pub const WIDTH: usize = 128;
+pub const HEIGHT: usize = 64;
 
 fn byte_to_array(byte: u8, array: &mut [u8]) {
     for i in 0..=7 {
@@ -57,7 +48,8 @@ pub struct ST7920 {
     pub screen: [[u8; 256]; 64],
     pub state: ST7920DataState,
     pub coord: Coordinate,
-    need_redraw: bool,
+    // The screen changed since the last render().
+    dirty: bool,
     rw: bool,
     e: bool,
     // Level of DB0..DB7, as seen on the bus.
@@ -71,7 +63,7 @@ impl ST7920 {
         Self { screen: [[0u8; 256]; 64],
                state: ST7920DataState::VerticalAddress,
                coord: Coordinate { VA: 0, HA: 0 },
-               need_redraw: false,
+               dirty: true,
                rw: false,
                e: false,
                data: 0,
@@ -95,29 +87,30 @@ impl ST7920 {
         } else if self.state == ST7920DataState::DataPart2 {
             byte_to_array(value, &mut self.screen[self.coord.VA][(self.coord.HA + 8)..=(self.coord.HA + 15)]);
             self.state = ST7920DataState::VerticalAddress;
-            self.need_redraw = true;
-        }
-    }
-
-    fn print_screen(&self) {
-        for i in (0..=9).map(|x| 4 * (3 + x)) {
-            for j in if i <= (4 * (3 + 4)) { 0..32 } else { 32..64 } {
-                print!("{}", if unsafe { self.screen[i % 32][j * 4] } == 0 { '\u{2588}' } else { '\u{0020}' });
-            }
-            println!("");
+            self.dirty = true;
         }
     }
 }
 
+// GDRAM is 32 rows of 256 pixels: the left half of each row is the top
+// half of the screen, the right half the bottom.
 impl Display for ST7920 {
-    fn redraw(&mut self, draw: fn(u16, u16, bool)) {
-        if !self.need_redraw {
-            return;
+    fn size(&self) -> (usize, usize) {
+        (WIDTH, HEIGHT)
+    }
+
+    fn render(&mut self, pixels: &mut [u32]) -> bool {
+        if !self.dirty {
+            return false;
         }
-        for ha in (self.coord.HA..=self.coord.HA + 15).step_by(4) {
-            draw_rot(ha as u16, (self.coord.VA / 4) as u16, self.screen[self.coord.VA][ha] != 0, draw);
+        for y in 0..HEIGHT {
+            let (row, offset) = if y < HEIGHT / 2 { (y, 0) } else { (y - HEIGHT / 2, WIDTH) };
+            for x in 0..WIDTH {
+                pixels[y * WIDTH + x] = if self.screen[row][offset + x] != 0 { LIT } else { BACKGROUND };
+            }
         }
-        self.need_redraw = false;
+        self.dirty = false;
+        true
     }
 }
 

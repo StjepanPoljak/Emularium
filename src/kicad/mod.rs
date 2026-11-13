@@ -4,68 +4,21 @@
 // constant driver; nets called NAME0..NAMEn are also traced as bus NAME.
 pub mod sexpr;
 pub mod netlist;
-pub mod emu;
 
-use std::collections::{ BTreeMap, HashMap, HashSet };
+use std::collections::{ HashMap, HashSet };
 use std::error::Error;
-use std::fmt;
 use std::path::Path;
 
 use crate::board::Board;
-use crate::common::net::Level;
-use crate::hw::rail::Rail;
-use crate::kicad::emu::Emu;
 use crate::kicad::netlist::Netlist;
-
-// What load() made of a netlist.
-#[derive(Default)]
-pub struct Report {
-    // (reference, model)
-    pub emulated: Vec<(String, String)>,
-    pub ignored: Vec<String>,
-    pub rails: Vec<(String, Level)>,
-    pub buses: Vec<String>,
-    // Nets with a single emulated pin: nothing to talk to in the emulator.
-    pub lone_nets: Vec<String>
-}
-
-impl fmt::Display for Report {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let emulated: Vec<String> = self.emulated.iter().map(|(reference, model)| format!("{reference} ({model})")).collect();
-        let rails: Vec<String> = self.rails.iter().map(|(net, level)| format!("{net} ({})", if *level == Level::High { 1 } else { 0 })).collect();
-        writeln!(f, "Emulated: {}", emulated.join(", "))?;
-        writeln!(f, "Not emulated: {}", self.ignored.join(", "))?;
-        writeln!(f, "Power rails: {}", rails.join(", "))?;
-        writeln!(f, "Buses: {}", self.buses.join(", "))?;
-        write!(f, "Nets with one emulated pin: {}", self.lone_nets.join(", "))
-    }
-}
-
-// Level of a power net, by its name.
-fn rail_level(net: &str) -> Option<Level> {
-    if net.starts_with("GND") || net == "VSS" || net == "0V" {
-        Some(Level::Low)
-    } else if net.starts_with('+') || net == "VCC" || net == "VDD" {
-        Some(Level::High)
-    } else {
-        None
-    }
-}
+use crate::loader::{ Report, add_net, group_buses };
+use crate::parts::PartSpec;
 
 // Matches a symbol pin name such as "INT/RB0" or "~{MCLR}/Vpp" against the
 // model's pins.
 fn match_pin(function: &str, pins: &[&'static str]) -> Option<&'static str> {
     function.split('/').map(|name| name.replace("~{", "").replace('}', ""))
         .find_map(|name| pins.iter().find(|pin| **pin == name).copied())
-}
-
-// Splits "LCD_DB7" into ("LCD_DB", 7).
-fn bus_member(net: &str) -> Option<(&str, usize)> {
-    let prefix = net.trim_end_matches(|c: char| c.is_ascii_digit());
-    if prefix.is_empty() || prefix.len() == net.len() {
-        return None;
-    }
-    Some((prefix, net[prefix.len()..].parse().ok()?))
 }
 
 pub fn load(board: &mut Board, path: &Path) -> Result<Report, Box<dyn Error>> {
@@ -84,11 +37,14 @@ pub fn build(board: &mut Board, netlist: &Netlist, dir: &Path) -> Result<Report,
             report.ignored.push(part.reference.clone());
             continue;
         };
-        let emu = Emu::parse(field).map_err(|err| format!("{}: {err}", part.reference))?;
-        let model = emu.build(dir).map_err(|err| format!("{}: {err}", part.reference))?;
+        let spec = PartSpec::parse(field).map_err(|err| format!("{}: {err}", part.reference))?;
+        let model = spec.build(dir).map_err(|err| format!("{}: {err}", part.reference))?;
         parts.insert(part.reference.as_str(), (model.pinout, model.component.pins().to_vec()));
-        board.add_component(&part.reference, model.component);
-        report.emulated.push((part.reference.clone(), emu.model));
+        let bc_idx = board.add_component(&part.reference, model.component);
+        if let Some(screen) = model.screen {
+            board.add_screen(bc_idx, screen);
+        }
+        report.emulated.push((part.reference.clone(), spec.model));
     }
 
     let mut connected = HashSet::new();
@@ -121,34 +77,10 @@ pub fn build(board: &mut Board, netlist: &Netlist, dir: &Path) -> Result<Report,
             continue;
         }
 
-        if let Some(level) = rail_level(name) {
-            board.add_component(name, Box::new(Rail::new(level)));
-            pins.push(format!("{name}.OUT"));
-            report.rails.push((name.to_string(), level));
-        } else if pins.len() == 1 {
-            report.lone_nets.push(name.to_string());
-        }
-        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
-        board.net(name, &pins);
-        net_names.push(name);
+        add_net(board, &mut report, name, pins);
+        net_names.push(name.to_string());
     }
-
-    // Nets NAME0..NAMEn, without gaps, become bus NAME.
-    let mut buses: BTreeMap<&str, Vec<(usize, &str)>> = BTreeMap::new();
-    for net in &net_names {
-        if let Some((prefix, idx)) = bus_member(net) {
-            buses.entry(prefix).or_default().push((idx, net));
-        }
-    }
-    for (prefix, mut members) in buses {
-        members.sort_unstable();
-        if members.len() < 2 || members.iter().enumerate().any(|(i, (idx, _))| i != *idx) {
-            continue;
-        }
-        let names: Vec<&str> = members.iter().map(|(_, net)| *net).collect();
-        board.group_bus(prefix, &names);
-        report.buses.push(prefix.to_string());
-    }
+    group_buses(board, &mut report, &net_names);
 
     Ok(report)
 }
@@ -157,6 +89,7 @@ pub fn build(board: &mut Board, netlist: &Netlist, dir: &Path) -> Result<Report,
 mod tests {
     use super::*;
     use crate::board_test::SharedBuf;
+    use crate::common::net::Level;
 
     // U1 is matched by pin name, J2 through its pins= map.
     fn netlist(j2_pins: &str) -> String {
@@ -194,7 +127,7 @@ mod tests {
 
     #[test]
     fn loads_parts_nets_rails_and_buses() {
-        let mut board = Board::new_headless();
+        let mut board = Board::new();
         let report = load_text(&mut board, &netlist("1:D0 2:D1 5:DA")).unwrap();
         assert_eq!(report.to_string(), "\
 Emulated: J2 (74C922), U1 (PIC16F876)
@@ -218,15 +151,15 @@ Nets with one emulated pin: X0, X2");
 
     #[test]
     fn reports_bad_parts() {
-        let mut board = Board::new_headless();
+        let mut board = Board::new();
         let err = load_text(&mut board, &netlist("1:D0 2:D0")).err().unwrap();
         assert_eq!(err.to_string(), "J2.D0 is on more than one net (last: D1)");
 
-        let mut board = Board::new_headless();
+        let mut board = Board::new();
         let err = load_text(&mut board, &netlist("1:Q")).err().unwrap();
         assert_eq!(err.to_string(), "J2: 74C922 has no pin Q");
 
-        let mut board = Board::new_headless();
+        let mut board = Board::new();
         let text = netlist("1:D0").replace("PIC16F876 rom=TETRIS.hex", "PIC16F876 rom=missing.hex");
         let err = load_text(&mut board, &text).err().unwrap().to_string();
     assert!(err.starts_with("U1: ./missing.hex: "), "{err}");
@@ -237,8 +170,5 @@ Nets with one emulated pin: X0, X2");
         assert_eq!(match_pin("INT/RB0", &["RB0", "RB1"]), Some("RB0"));
         assert_eq!(match_pin("~{SS}/AN4/RA5", &["RA5"]), Some("RA5"));
         assert_eq!(match_pin("VSS", &["RA5"]), None);
-        assert_eq!(bus_member("LCD_DB7"), Some(("LCD_DB", 7)));
-        assert_eq!(bus_member("LCD_E"), None);
-        assert_eq!(bus_member("42"), None);
     }
 }

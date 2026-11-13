@@ -1,0 +1,14 @@
+# SPI RAM test: PIC16F876 at 4 MHz bit-banging SPI to a 23LC1024.
+# Same wiring and part names as spiram.kicad_sch.
+name = "SPI RAM"
+
+[parts]
+U1 = { model = "PIC16F876", rom = "spiram_test.hex", fosc = "4MHz" }
+U2 = { model = "23LC1024" }
+
+[nets]
+"+5V" = ["U2.HOLD"]
+RAM_CS = ["U1.RC2", "U2.CS"]
+SPI_SCK = ["U1.RC3", "U2.SCK"]
+SPI_MISO = ["U1.RC4", "U2.SO"]
+SPI_MOSI = ["U1.RC5", "U2.SI"]

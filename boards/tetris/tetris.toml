@@ -1,0 +1,17 @@
+# Tetris: PIC16F876 at 4 MHz, ST7920 128x64 LCD on a parallel bus, 74C922
+# keypad encoder. Same wiring and part names as tetris.kicad_sch.
+name = "Tetris"
+
+[parts]
+U1 = { model = "PIC16F876", rom = "../../TETRIS.hex", fosc = "4MHz" }
+# Mounted on its side: the game draws the well across the long edge.
+J1 = { model = "ST7920", rotate = 270, scale = 4 }
+J2 = { model = "74C922", hold = "130ms", keys = { a = 3, d = 4, s = 2, space = 5, k = 6, left = 3, right = 4, down = 2, up = 5 } }
+
+[nets]
+LCD_RS = ["U1.RA0", "J1.RS"]
+LCD_RW = ["U1.RA1", "J1.RW"]
+LCD_E = ["U1.RA2", "J1.E"]
+"LCD_DB0..7" = ["U1.RC0..7", "J1.DB0..7"]
+"KEY_D0..3" = ["U1.RB0..3", "J2.D0..3"]
+KEY_DA = ["U1.RB4", "J2.DA"]

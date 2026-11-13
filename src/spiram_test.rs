@@ -28,8 +28,8 @@ fn mem(board: &mut Board, pic_idx: usize, addr: usize) -> u8 {
 // Runs spiram_test.asm to the end, tracing the named nets to trace if
 // given. Returns the board and the PIC's index.
 fn run_firmware(trace: Option<(Box<dyn Write>, &[&str])>) -> (Board, usize) {
-    let mut board = Board::new_headless();
-    crate::kicad::load(&mut board, Path::new(BOARD)).unwrap();
+    let mut board = Board::new();
+    crate::loader::load(&mut board, Path::new(BOARD)).unwrap();
     let pic_idx = board.find_component("U1").unwrap();
     if let Some((out, names)) = trace {
         board.trace(out, names).unwrap();

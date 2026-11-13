@@ -48,7 +48,7 @@ type Seen = Rc<RefCell<Vec<(Time, usize, Level)>>>;
 // Components A and B run the scripts; PROBE watches.
 fn board(a: Vec<Vec<(usize, Level, Time)>>, b: Vec<Vec<(usize, Level, Time)>>) -> (Board, Seen) {
     let seen = Rc::new(RefCell::new(vec![]));
-    let mut board = Board::new_headless();
+    let mut board = Board::new();
     board.add_component("A", Box::new(Script { drives: a, idx: 0 }));
     board.add_component("B", Box::new(Script { drives: b, idx: 0 }));
     board.add_component("PROBE", Box::new(Probe { seen: seen.clone() }));
