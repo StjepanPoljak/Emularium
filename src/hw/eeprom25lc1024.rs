@@ -1,6 +1,6 @@
 use crate::common::component::{ Component, Ctx };
 use crate::common::net::Level;
-use crate::common::time::{ Time, NS, MS };
+use crate::common::time::{ Time, NS, US, MS };
 
 const PINS: [&str; 6] = ["CS", "SO", "SI", "SCK", "HOLD", "WP"];
 const CS: usize = 0;
@@ -38,17 +38,20 @@ const WEL: u8 = 0x02;
 const BP: u8 = 0x0c;
 const WPEN: u8 = 0x80;
 
-// Maximum self-timed cycle times: write (byte or page, and WRSR), page
-// erase, sector erase, chip erase.
+// Timing from the datasheet (DS22064C, AC characteristics, 4.5-5.5 V):
+// self-timed cycles for a write (byte or page, and WRSR), page erase,
+// sector erase and chip erase; CS high to standby after RDID; output valid
+// after SCK falls, output disable after CS rises, HOLD low to SO high-Z
+// and HOLD high to output valid.
 const T_WC: Time = 6 * MS;
 const T_PE: Time = 6 * MS;
 const T_SE: Time = 10 * MS;
 const T_CE: Time = 10 * MS;
-// Output timing as in the 23LC1024 model: output valid after SCK falls,
-// output disable after CS rises, output valid after HOLD rises.
+const T_REL: Time = 100 * US;
 const T_V: Time = 25 * NS;
-const T_DIS: Time = 20 * NS;
-const T_HV: Time = 50 * NS;
+const T_DIS: Time = 25 * NS;
+const T_HZ: Time = 15 * NS;
+const T_HV: Time = 15 * NS;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum Phase {
@@ -84,7 +87,10 @@ enum Action {
 // changes after the falling edge; CS, HOLD and WP only act when driven low.
 // WRITE, WRSR and the erases need WREN first, and start when CS rises
 // after a whole number of bytes; the chip is then busy for the cycle time,
-// answering only RDSR. A page write wraps within its 256-byte page.
+// answering only RDSR. A page write wraps within its 256-byte page. After
+// DPD, only RDID is answered; CS rising after its opcode releases the chip,
+// which is back in standby T_REL later. A refused write or erase (protected
+// block, WP) leaves WEL set: the datasheet resets it only on success.
 pub struct EEPROM25LC1024 {
     mem: Vec<u8>,
     // WPEN and BP1:BP0, as set with WRSR.
@@ -92,6 +98,9 @@ pub struct EEPROM25LC1024 {
     wel: bool,
     busy: bool,
     asleep: bool,
+    // Commands are ignored until then, after a release from DPD.
+    standby_at: Time,
+    now: Time,
     wp_low: bool,
     selected: bool,
     held: bool,
@@ -118,6 +127,8 @@ impl EEPROM25LC1024 {
                wel: false,
                busy: false,
                asleep: false,
+               standby_at: 0,
+               now: 0,
                wp_low: false,
                selected: false,
                held: false,
@@ -175,7 +186,11 @@ impl EEPROM25LC1024 {
     fn command(&mut self, cmd: u8) {
         self.cmd = cmd;
         // Asleep, the chip only wakes for RDID; busy, it only answers RDSR.
-        if (self.asleep && cmd != RDID) || (self.busy && cmd != RDSR) {
+        let releasing = self.now < self.standby_at;
+        if (self.asleep && cmd != RDID) || (self.busy && cmd != RDSR) || releasing {
+            if releasing {
+                eprintln!("25LC1024: command {cmd:#04x} within T_REL of leaving deep power-down, ignored");
+            }
             self.phase = Phase::Ignore;
             return;
         }
@@ -269,8 +284,10 @@ impl EEPROM25LC1024 {
     fn deselected(&mut self, ctx: &mut Ctx) {
         let action = self.action.take();
         let whole_bytes = self.bits_in == 0;
-        if self.phase == Phase::Signature {
+        // RDID releases the chip once its opcode is in, signature read or not.
+        if self.asleep && self.cmd == RDID && self.phase != Phase::Command && self.phase != Phase::Ignore {
             self.asleep = false;
+            self.standby_at = self.now + T_REL;
         }
         if !whole_bytes {
             return;
@@ -278,7 +295,6 @@ impl EEPROM25LC1024 {
         if self.phase == Phase::WriteData && !self.page.is_empty() {
             if self.protected(self.page[0].0) {
                 eprintln!("25LC1024: write to protected address {:#07x}, ignored", self.page[0].0);
-                self.wel = false;
                 return;
             }
             for (addr, byte) in std::mem::take(&mut self.page) {
@@ -295,7 +311,6 @@ impl EEPROM25LC1024 {
             Action::WriteStatus(byte) => {
                 if self.status & WPEN != 0 && self.wp_low {
                     eprintln!("25LC1024: WRSR with WPEN set and WP low, ignored");
-                    self.wel = false;
                     return;
                 }
                 self.status = byte & (WPEN | BP);
@@ -304,7 +319,6 @@ impl EEPROM25LC1024 {
             Action::PageErase(addr) | Action::SectorErase(addr) => {
                 if self.protected(addr) {
                     eprintln!("25LC1024: erase of protected address {addr:#07x}, ignored");
-                    self.wel = false;
                     return;
                 }
                 let (size, time) = if matches!(action, Action::PageErase(_)) { (PAGE_SIZE, T_PE) } else { (SECTOR_SIZE, T_SE) };
@@ -314,7 +328,6 @@ impl EEPROM25LC1024 {
             Action::ChipErase => {
                 if self.status & BP != 0 {
                     eprintln!("25LC1024: chip erase with block protection on, ignored");
-                    self.wel = false;
                     return;
                 }
                 self.fill(0, SIZE as u32);
@@ -338,6 +351,7 @@ impl Component for EEPROM25LC1024 {
     }
 
     fn input_changed(&mut self, pin: usize, level: Level, ctx: &mut Ctx) {
+        self.now = ctx.now();
         match pin {
             CS => {
                 let selected = level == Level::Low;
@@ -383,7 +397,7 @@ impl Component for EEPROM25LC1024 {
                 }
                 self.held = held;
                 if self.selected && self.so != Level::Z {
-                    let (level, delay) = if held { (Level::Z, 0) } else { (self.so, T_HV) };
+                    let (level, delay) = if held { (Level::Z, T_HZ) } else { (self.so, T_HV) };
                     ctx.drive_after(SO, level, delay);
                 }
             },
@@ -496,7 +510,7 @@ mod tests {
         assert_eq!(m.read(0x17fff, 2), vec![2, 0xff]);
         m.transaction(&[WREN]);
         m.transaction(&[CE]);
-        assert_eq!(status(&mut m), 0x04, "no chip erase while protected");
+        assert_eq!(status(&mut m), WEL | 0x04, "no chip erase while protected; WEL stays set");
         assert_eq!(m.read(0x17fff, 1), vec![2]);
     }
 
@@ -509,7 +523,7 @@ mod tests {
         m.set(WP, Level::Low);
         m.transaction(&[WREN]);
         m.transaction(&[WRSR, 0x0c]);
-        assert_eq!(status(&mut m), WPEN);
+        assert_eq!(status(&mut m), WEL | WPEN);
         m.set(WP, Level::High);
         m.transaction(&[WREN]);
         m.transaction(&[WRSR, WPEN | 0x0c]);
@@ -547,6 +561,29 @@ mod tests {
         m.transaction(&[DPD]);
         assert_eq!(m.read(0, 1), vec![0], "asleep");
         assert_eq!(m.transaction(&[RDID, 0, 0, 0, 0, 0]), vec![0, 0, 0, 0, SIGNATURE, SIGNATURE]);
+        assert_eq!(m.read(0, 1), vec![0], "within T_REL");
+        m.wait(T_REL);
         assert_eq!(m.read(0, 1), vec![0x5a]);
+    }
+
+    #[test]
+    fn rdid_opcode_alone_releases_deep_power_down() {
+        let mut m = master();
+        m.chip.load(&[0x5a]);
+        m.transaction(&[DPD]);
+        m.transaction(&[RDID]);
+        m.wait(T_REL);
+        assert_eq!(m.read(0, 1), vec![0x5a]);
+        // Awake, RDID just reads the signature.
+        assert_eq!(m.transaction(&[RDID, 0, 0, 0, 0]), vec![0, 0, 0, 0, SIGNATURE]);
+        assert_eq!(m.read(0, 1), vec![0x5a]);
+    }
+
+    #[test]
+    fn dpd_needs_cs_high_after_its_opcode() {
+        let mut m = master();
+        m.chip.load(&[0x5a]);
+        m.transaction(&[DPD, 0]);
+        assert_eq!(m.read(0, 1), vec![0x5a], "not asleep");
     }
 }
