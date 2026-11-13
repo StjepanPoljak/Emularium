@@ -159,4 +159,5 @@ If you run a modified Emularium as a network service, the AGPL requires you
 to offer its source code to the people who use it.
 
 Companies that want to use Emularium without the AGPL's terms need a
-commercial licence from the author.
+commercial licence, agreed with the author and every contributor whose
+code it covers. See [CONTRIBUTING.md](CONTRIBUTING.md).
