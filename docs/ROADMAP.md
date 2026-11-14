@@ -60,7 +60,8 @@ bus NAME. Needs `kicad-cli` (or pass an exported `.net`).
 - Components: `PIC16F876`, `ST7920` LCD (with busy flag readback), `Keypad`
   (74C922-style encoder), `23LC1024` SPI SRAM.
 - Not emulated: interrupts (RETFIE exists, nothing raises them), TMR0, TMR2,
-  WDT, MSSP (SPI/I2C), USART, ADC, CCP.
+  WDT, MSSP (SPI/I2C), ADC, CCP. The USART is emulated in asynchronous
+  mode (2026-11-14).
 - History of the Tetris debugging: `DEBUG_NOTES.md`.
 
 ### How the board works today

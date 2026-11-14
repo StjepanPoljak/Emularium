@@ -8,6 +8,7 @@ use crate::common::component::{ Component, Ctx };
 use crate::common::mcu::{ MCU, RegDump, MemDump };
 use crate::common::net::Level;
 use crate::common::time::{ Time, S };
+use crate::pic::usart::{ self, Usart };
 
 #[cfg(test)]
 mod tests {
@@ -31,13 +32,19 @@ const PORTS: [(usize, usize, usize); 3] = [
     (Register::PORTC as usize, Register::TRISC as usize, 14)
 ];
 
+// PORTC bits of the USART's pins, and RC6's index in PINS.
+const TX_BIT: usize = 6;
+const RX_BIT: usize = 7;
+const TX_PIN: usize = 20;
+
 pub struct PIC16F876Bus {
     pub rom: [u16; 0x2000],
     pub ram: [u8; 512],
     pub porta: GpioGroup,
     pub portb: GpioGroup,
     pub portc: GpioGroup,
-    tmr1_prescaler: u16
+    tmr1_prescaler: u16,
+    pub usart: Usart
 }
 
 impl GpioGroup {
@@ -56,7 +63,8 @@ impl PIC16F876Bus {
                        porta: GpioGroup::new(6),
                        portb: GpioGroup::new(8),
                        portc: GpioGroup::new(8),
-                       tmr1_prescaler: 0
+                       tmr1_prescaler: 0,
+                       usart: Usart::new()
         }
     }
 
@@ -85,9 +93,17 @@ impl PIC16F876Bus {
         (latch & !tris) | (input_values as u8 & tris)
     }
 
-    // Advances Timer1 by the given number of instruction cycles
-    // (internal clock source only, T1CON.TMR1CS = 0).
+    // Advances the peripherals by the given number of instruction cycles:
+    // the USART, and Timer1 (internal clock source only, T1CON.TMR1CS = 0).
     pub fn tick(&mut self, cycles: u32) {
+        let rx = self.portc.input_values & (1 << RX_BIT) != 0;
+        let (txsta, rcsta, spbrg) = (self.ram[Register::TXSTA as usize], self.ram[Register::RCSTA as usize],
+                                     self.ram[Register::SPBRG as usize]);
+        self.usart.tick(cycles, txsta, rcsta, spbrg, rx);
+        self.tick_timer1(cycles);
+    }
+
+    fn tick_timer1(&mut self, cycles: u32) {
         let t1con = self.ram[Register::T1CON as usize];
         if t1con & 0x01 == 0 || t1con & 0x02 != 0 {
             return;
@@ -179,8 +195,22 @@ impl Bus for PIC16F876Bus {
                 self.port_pins(Register::PORTB, Register::TRISB, self.portb.input_values),
             a if a == Register::PORTC as usize =>
                 self.port_pins(Register::PORTC, Register::TRISC, self.portc.input_values),
+            a if a == Register::PIR1 as usize =>
+                (self.ram[addr] & !(usart::RCIF | usart::TXIF)) | self.usart.pir1_flags(self.ram[Register::TXSTA as usize]),
+            a if a == Register::TXSTA as usize => (self.ram[addr] & !usart::TRMT) | self.usart.txsta_flags(),
+            a if a == Register::RCSTA as usize =>
+                (self.ram[addr] & !(usart::FERR | usart::OERR | usart::RX9D)) | self.usart.rcsta_flags(),
+            a if a == Register::RCREG as usize => self.usart.rcreg(),
             _ => self.ram[addr]
         }
+    }
+
+    fn read_mut(&mut self, addr: u16) -> u8 {
+        let val = self.read(addr);
+        if Self::map_addr(addr) == Register::RCREG as usize {
+            self.usart.pop();
+        }
+        val
     }
 
     fn write(&mut self, addr: u16, val: u8) {
@@ -198,6 +228,14 @@ impl Bus for PIC16F876Bus {
                 self.portb.output_pending = true;
             },
             a if a == Register::PORTC as usize || a == Register::TRISC as usize => {
+                self.portc.output_pending = true;
+            },
+            a if a == Register::TXREG as usize => {
+                self.usart.write_txreg(val, self.ram[Register::TXSTA as usize]);
+            },
+            a if a == Register::TXSTA as usize || a == Register::RCSTA as usize => {
+                self.usart.control_written(self.ram[Register::TXSTA as usize], self.ram[Register::RCSTA as usize]);
+                // RC6 and RC7 change hands between PORTC and the USART.
                 self.portc.output_pending = true;
             },
             _ => ()
@@ -248,8 +286,19 @@ impl PIC16F876Bus {
             let width = group.width;
 
             let (latch, tris) = (self.ram[port], self.ram[tris]);
+            let (txsta, rcsta) = (self.ram[Register::TXSTA as usize], self.ram[Register::RCSTA as usize]);
             for bit in 0..width {
-                let level = if tris & (1 << bit) != 0 { Level::Z } else { Level::from_bit(latch & (1 << bit) != 0) };
+                let mut level = if tris & (1 << bit) != 0 { Level::Z } else { Level::from_bit(latch & (1 << bit) != 0) };
+                if port == Register::PORTC as usize && rcsta & usart::SPEN != 0 {
+                    // The USART overrides the port: TX is its output (when
+                    // TXEN), RX an input.
+                    match bit {
+                        // step() drives TX, at the cycle each edge is due.
+                        TX_BIT if self.usart.tx_pin(txsta, rcsta).is_some() => continue,
+                        RX_BIT => level = Level::Z,
+                        _ => ()
+                    }
+                }
                 ctx.drive(first_pin + bit, level);
             }
         }
@@ -297,6 +346,10 @@ impl Component for PIC16F876 {
         self.core.pc = self.core.pc.wrapping_add(1) & 0x1fff;
         self.bus.tick(cycles as u32);
         self.bus.drive_ports(ctx);
+        // TX edges at the cycle they happened in.
+        for (cycle, level) in self.bus.usart.tx_events.drain(..) {
+            ctx.drive_after(TX_PIN, Level::from_bit(level), cycle as Time * self.cycle_time);
+        }
         cycles as u32
     }
 
@@ -365,13 +418,13 @@ impl P16 {
             if real_addr & 0x7f == Register::INDF as u16 {
                 return 0; // INDF addressing itself reads as 0
             }
-            bus.read(real_addr)
+            bus.read_mut(real_addr)
         } else if addr == (Register::PCL as u16) {
             // PC is already incremented while the instruction executes
             (self.pc.wrapping_add(1) & 0xff) as u8
         } else {
             let real_addr = self.direct_addr(addr, bus);
-            bus.read(real_addr)
+            bus.read_mut(real_addr)
         }
     }
 

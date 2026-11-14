@@ -12,6 +12,7 @@ use crate::hw::eeprom25lc1024::EEPROM25LC1024;
 use crate::hw::keypad::Keypad;
 use crate::hw::sram23lc1024::SRAM23LC1024;
 use crate::hw::st7920::ST7920;
+use crate::hw::uart::Uart;
 use crate::pic::pic16f876::PIC16F876;
 use crate::screen::ScreenOpts;
 
@@ -215,6 +216,31 @@ impl PartSpec {
                     return Err("25LC1024: offset needs image=FILE".into());
                 }
                 (Box::new(eeprom), EEPROM25LC1024_PINOUT)
+            },
+            "UART" => {
+                // A USB-UART adapter: TX and RX are its own, so TX goes to
+                // the MCU's RX. tcp=PORT serves it on localhost; without
+                // it, what the board sends is printed.
+                self.check_params(&["baud", "tcp"])?;
+                let baud = self.param("baud").map(parse_hz).transpose()?.unwrap_or(115_200);
+                let uart = match self.param("tcp") {
+                    Some(port) => {
+                        let port = port.parse().map_err(|_| format!("tcp={port}: expected a port number"))?;
+                        Uart::tcp(baud, port).map_err(|err| format!("UART on TCP port {port}: {err}"))?
+                    },
+                    None => {
+                        let (uart, _, from_board) = Uart::new(baud);
+                        std::thread::spawn(move || {
+                            use std::io::Write;
+                            for byte in from_board {
+                                let mut out = std::io::stdout();
+                                let _ = out.write_all(&[byte]).and_then(|_| out.flush());
+                            }
+                        });
+                        uart
+                    }
+                };
+                (Box::new(uart), &[])
             },
             model => return Err(format!("unknown model {model}"))
         };

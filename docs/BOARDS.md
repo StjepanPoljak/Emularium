@@ -63,6 +63,7 @@ Each board directory has its diagram as `NAME.svg`.
 | `74C922` | `hold` (`130ms`), `keys` (`{ a = 3, space = 5 }`) | `D0`-`D3 DA` |
 | `23LC1024` | | `CS SO SI SCK HOLD` |
 | `25LC1024` | `image` (file to preload), `offset` (where this chip's 128K starts in it: `131072` or `128K`) | `CS SO SI SCK HOLD WP` |
+| `UART` | `baud` (default `115200`), `tcp` (port on localhost; without it, what the board sends is printed) | `TX RX`, the adapter's own: `TX` goes to the MCU's RX |
 
 Keys are one character, or `space`, `enter`, `left`, `right`, `up`,
 `down`.

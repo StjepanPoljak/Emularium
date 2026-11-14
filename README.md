@@ -24,9 +24,10 @@ undriven, and timing is modelled as delays between events.
 | `74C922` | 16-key keypad encoder |
 | `23LC1024` | 128 KB SPI SRAM |
 | `25LC1024` | 128 KB SPI EEPROM, optionally preloaded from a file |
+| `UART` | a USB-UART adapter, optionally served on a TCP port for host programs |
 
-The PIC core has ports A-C and Timer 1. It doesn't emulate interrupts, TMR0,
-TMR2, the watchdog, MSSP, the USART, the ADC or CCP.
+The PIC core has ports A-C, Timer 1 and the USART (asynchronous mode). It
+doesn't emulate interrupts, TMR0, TMR2, the watchdog, MSSP, the ADC or CCP.
 
 Three boards come with it:
 

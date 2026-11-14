@@ -26,6 +26,8 @@ pub struct GpioGroup {
 // TODO: needs to be reworked to support larger sizes
 pub trait Bus {
     fn read(&self, addr: u16) -> u8;
+    // A read by the CPU, which may have side effects (the PIC's RCREG).
+    fn read_mut(&mut self, addr: u16) -> u8 { self.read(addr) }
     fn write(&mut self, addr: u16, val: u8);
     fn fetch(&self, pc: u16) -> u16;
 
