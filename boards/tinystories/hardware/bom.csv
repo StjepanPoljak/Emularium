@@ -1,0 +1,15 @@
+Qty,Manufacturer,Manufacturer Part Number,Description,Notes
+2,Microchip,PIC16F876A-I/SP,"8-bit MCU, 28-pin SPDIP, 20 MHz",one spare
+4,Microchip,25LC1024-I/P,"1 Mbit SPI EEPROM, DIP-8",3 for the weights + 1 spare
+2,Microchip,23LC1024-I/P,"1 Mbit SPI SRAM, DIP-8",KV cache + 1 spare
+2,Abracon,ABL-20.000MHZ-B2,"20 MHz crystal, HC-49/US",
+10,Vishay,K220J15C0GF5TL2,"22 pF C0G ceramic, through-hole",crystal load
+10,Vishay,K104K15X7RF5TL2,"100 nF X7R ceramic, through-hole",decoupling
+20,Yageo,MFR-25FBF52-10K,"10 kOhm 1/4 W resistor",MCLR + chip-select pull-ups
+10,Yageo,MFR-25FBF52-1K,"1 kOhm 1/4 W resistor",series on RB6/RB7 for ICSP
+1,Bourns,3386P-1-103LF,"10 kOhm trimmer",LCD contrast
+1,FTDI,TTL-232R-5V,"USB to UART cable, 5 V logic",weight loader + 5 V supply
+2,onsemi,2N3904BU,"NPN transistor, TO-92",Pi programmer VPP switch (tools/picprog) + 1 spare
+2,onsemi,2N3906BU,"PNP transistor, TO-92",Pi programmer VPP switch + 1 spare
+10,Yageo,MFR-25FBF52-4K7,"4.7 kOhm 1/4 W resistor",Pi programmer transistor bases
+1,Adafruit,757,"4-channel BSS138 level shifter, 3.3 V to 5 V",Pi programmer PGC/PGD/PGM
