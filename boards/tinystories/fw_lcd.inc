@@ -78,6 +78,7 @@ LCD_INIT:
 	call	LCD_CMD
 	movlw	0x36			; graphics on
 	call	LCD_CMD
+LCD_CLEAR:
 	clrf	P_HI
 	clrf	P_LO
 	clrf	P_Y
@@ -92,6 +93,43 @@ LCD_CLEAR_WORD:
 	btfss	P_Y,6
 	goto	LCD_CLEAR_ROW
 	return
+
+; Draws the start-up screen, SPLASH (splash.py, gen_data.py): 64 rows of
+; 8 words, two bytes each.
+SPLASH_DRAW:
+	movlw	LOW (SPLASH_BMP)
+	movwf	FAL
+	movlw	HIGH (SPLASH_BMP)
+	movwf	FAH
+	clrf	P_Y
+SPLASH_ROW:
+	clrf	P_W
+SPLASH_WORD:
+	call	SPLASH_NEXT
+	movwf	P_HI
+	call	SPLASH_NEXT
+	movwf	P_LO
+	call	LCD_WORD
+	incf	P_W,F
+	btfss	P_W,3
+	goto	SPLASH_WORD
+	incf	P_Y,F
+	btfss	P_Y,6
+	goto	SPLASH_ROW
+	return
+
+; W = the flash byte at FAH:FAL, which moves on.
+SPLASH_NEXT:
+	FRD
+	incf	FAL,F
+	btfsc	STATUS,Z
+	incf	FAH,F
+	return
+
+; Clears the start-up screen for the first token.
+SPLASH_END:
+	bcf	FLAGS,SPLASH
+	goto	LCD_CLEAR
 
 ; W = row P_R (0..5) of the glyph for character W, in the low nibble.
 GLYPH:

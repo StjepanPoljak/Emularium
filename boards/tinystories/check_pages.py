@@ -1,6 +1,8 @@
 """Checks tinystories.lst: every CALL/GOTO must reach its target with the
 PCLATH page bits the code assumes (page 0 code: PCLATH<3> clear; page 1
-code: set, except right after C0's BCF). Also checks the code stays in
+code: set, except right after C0's BCF), so page 1 code must not
+clear PCLATH (as START once did, sending its first calls to page 0).
+Also checks the code stays in
 its page."""
 import re
 import sys
@@ -19,6 +21,9 @@ for addr, w, src in words:
     if addr >= 0x1000:
         continue
     op = w >> 11
+    if addr >= 0x800 and w in (0x018A, 0x008A):         # CLRF PCLATH, MOVWF PCLATH
+        print(f"{addr:04X}: page 1 code overwrites PCLATH<3>: {src}")
+        bad += 1
     if op in (0b100, 0b101) and (w >> 12) == 0b10:     # CALL 100kkk, GOTO 101kkk
         target_low = w & 0x7FF
         page = addr >> 11

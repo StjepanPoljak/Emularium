@@ -18,7 +18,7 @@ python3 picprog.py vpp 30                # MCLR at VPP for 30 s, to measure it
 config word, the chip is alive. If it prints "no PIC answers", check the
 wiring and VPP.
 
-Writing the TinyStories firmware, which is 6,237 words, takes about 15 s on
+Writing the TinyStories firmware, which is 7,292 words, takes about 17 s on
 a PIC16F876A, which writes eight words at a time. On a PIC16F876 it takes
 about 40 s, because that chip writes one word at a time. Verifying adds a
 few seconds.

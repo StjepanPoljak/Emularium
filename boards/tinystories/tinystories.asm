@@ -118,6 +118,7 @@ XT	EQU	0x6F			; scratch: shift, QA base, phase index
 EEOPEN	EQU	0			; weight stream open at SA
 OIRP	EQU	1			; store handler writes to banks 2/3
 RAWACT	EQU	2			; RMSNORM leaves signed mantissas, no A
+SPLASH	EQU	3			; the start-up screen is up
 
 ; Aliases by phase
 SS	EQU	MAXP			; RMSNORM: 40-bit sum of squares
@@ -191,8 +192,7 @@ PAGE0_END:
 ; ------------------------------------------------------------ start
 
 START:
-	clrf	STATUS
-	clrf	PCLATH
+	clrf	STATUS			; PCLATH<3> stays set: this is page 1
 	clrf	FLAGS
 	movlw	B'00100000'		; EE2_CS high; LCD RS, RW, E low
 	movwf	PORTA
@@ -209,6 +209,8 @@ START:
 	movwf	TRISC
 	bcf	STATUS,RP0
 	call	LCD_INIT
+	call	SPLASH_DRAW		; until the first token
+	bsf	FLAGS,SPLASH
 	call	TXT_INIT
 	C0	RNG_INIT
 
@@ -231,6 +233,8 @@ TOKEN_LOOP:
 	call	STORY_END		; BOS: the story is over
 	goto	NEW_STORY
 PRINT_NEXT:
+	btfsc	FLAGS,SPLASH
+	call	SPLASH_END
 	call	PRINT_TOKEN
 	MOVN	TOKL, NEXTL, 2
 	INCN	POSL, 2
