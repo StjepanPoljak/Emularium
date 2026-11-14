@@ -33,8 +33,31 @@ tinystories.asm` in `boards/tinystories`.
 
 SPI is bit-banged on the MSSP pins (RC3 SCK, RC4 MISO, RC5 MOSI), so the
 hardware SPI can take over later; each chip has its own select (RC0, RC1,
-RA5, RC2). The LCD is on RA0-RA2 and PORTB. RC6/RC7 are free for a serial
-port.
+RA5, RC2). The LCD is on RA0-RA2 and PORTB. RC6/RC7 are the USART, for
+loading the weights.
+
+## Loading the weights
+
+On a real board, the EEPROMs are written through the PIC: flash
+`loader.hex` (from `loader.asm`), connect a 5 V USB-UART adapter (its TX
+to RC7, its RX to RC6, GND to GND) and run
+
+```sh
+python3 boards/tinystories/load_weights.py /dev/ttyUSB0
+```
+
+It writes the image a 256-byte page at a time, with a CRC per page, then
+reads it all back: about a minute at 115,200 baud. Then flash
+`tinystories.hex`. The adapter has to have 5 V logic levels: the PIC's
+RX is a Schmitt trigger input that needs 4 V for a 1.
+
+`loader.toml` is the same board with the loader and the adapter on TCP
+port 5555, to try it in the emulator:
+
+```sh
+cargo run --release -- boards/tinystories/loader.toml
+python3 boards/tinystories/load_weights.py socket://localhost:5555
+```
 
 ## Firmware
 
@@ -88,5 +111,11 @@ context grows, attention. The emulator runs it at about real time.
   `TS_POSITIONS=n` checks more; skipped without `tinystories/out/`.
 - `tinystories_story` (ignored) runs `TS_TOKENS` tokens and saves the
   screen as a PPM image.
+- `loader_protocol` and `load_weights_script_fills_the_eeproms`
+  (`src/weight_loader_test.rs`) run the loader on the board through the
+  UART part: the protocol by hand, then `load_weights.py` across a chip
+  boundary.
+- `pic_usart_talks_to_the_host` (`src/uart_test.rs`) checks the PIC's
+  USART against the UART part, and its frames with sigrok's UART decoder.
 - `pic_reads_the_weight_eeproms` and `sigrok_decodes_eeprom_traffic` run
   `eeprom_test.asm`, the bring-up firmware, with a made-up image.

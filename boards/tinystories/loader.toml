@@ -1,0 +1,39 @@
+# The TinyStories board with the serial loader (loader.asm) and a USB-UART
+# adapter on the USART: load_weights.py writes the weight image into the
+# EEPROMs, as on the real board.
+#
+#   cargo run --release -- boards/tinystories/loader.toml
+#   python3 boards/tinystories/load_weights.py socket://localhost:5555
+#
+# The emulated EEPROMs start blank and forget what was written when the
+# emulator stops: this board is for trying the loader, not for keeping
+# the image (tinystories.toml loads it from the file).
+name = "TinyStories loader"
+
+[parts]
+U1 = { model = "PIC16F876", rom = "loader.hex", fosc = "20MHz" }
+U2 = { model = "25LC1024" }
+U3 = { model = "25LC1024" }
+U4 = { model = "25LC1024" }
+U5 = { model = "23LC1024" }
+J1 = { model = "ST7920", scale = 4 }
+P1 = { model = "UART", baud = "115200", tcp = "5555" }
+
+[nets]
+SPI_SCK = ["U1.RC3", "U2.SCK", "U3.SCK", "U4.SCK", "U5.SCK"]
+SPI_MISO = ["U1.RC4", "U2.SO", "U3.SO", "U4.SO", "U5.SO"]
+SPI_MOSI = ["U1.RC5", "U2.SI", "U3.SI", "U4.SI", "U5.SI"]
+EE0_CS = ["U1.RC0", "U2.CS"]
+EE1_CS = ["U1.RC1", "U3.CS"]
+EE2_CS = ["U1.RA5", "U4.CS"]
+RAM_CS = ["U1.RC2", "U5.CS"]
+"+5V" = ["U2.HOLD", "U2.WP", "U3.HOLD", "U3.WP", "U4.HOLD", "U4.WP", "U5.HOLD"]
+
+# The adapter's TX goes to the PIC's RX and the other way round.
+SER_TX = ["U1.RC6", "P1.RX"]
+SER_RX = ["P1.TX", "U1.RC7"]
+
+LCD_RS = ["U1.RA0", "J1.RS"]
+LCD_RW = ["U1.RA1", "J1.RW"]
+LCD_E = ["U1.RA2", "J1.E"]
+"LCD_DB0..7" = ["U1.RB0..7", "J1.DB0..7"]
