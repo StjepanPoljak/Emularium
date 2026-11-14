@@ -178,6 +178,7 @@ b11 !
 z\"
 #20000
 0\"
+#30000
 ");
 }
 
@@ -199,6 +200,7 @@ $enddefinitions $end
 #0
 z!
 1\"
+#10000
 ");
 }
 
@@ -219,7 +221,7 @@ fn vcd_shows_contention_as_x() {
     b.init();
     run_until(&mut b, 3 * PERIOD);
     b.stop_trace().unwrap();
-    assert!(buf.text().ends_with("#0\n1!\n#10000\nx!\n#20000\n1!\n"), "{}", buf.text());
+    assert!(buf.text().ends_with("#0\n1!\n#10000\nx!\n#20000\n1!\n#30000\n"), "{}", buf.text());
 }
 
 #[test]
@@ -232,5 +234,5 @@ fn vcd_skips_change_undone_at_same_time() {
     b.init();
     run_until(&mut b, 3 * PERIOD);
     b.stop_trace().unwrap();
-    assert!(buf.text().ends_with("#0\n1!\n#20000\n0!\n"), "{}", buf.text());
+    assert!(buf.text().ends_with("#0\n1!\n#20000\n0!\n#30000\n"), "{}", buf.text());
 }

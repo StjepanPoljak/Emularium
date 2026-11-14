@@ -277,6 +277,10 @@ impl Component for PIC16F876 {
     fn init(&mut self) {
         self.bus.write(Register::STATUS as u16, 0x18);
         self.bus.write(Register::PCLATH as u16, 0x0);
+        // Power-on reset: every pin an input (datasheet table 2-1).
+        self.bus.ram[Register::TRISA as usize] = 0x3f;
+        self.bus.ram[Register::TRISB as usize] = 0xff;
+        self.bus.ram[Register::TRISC as usize] = 0xff;
     }
 
     fn clock_period(&self) -> Option<Time> {

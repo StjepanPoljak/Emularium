@@ -292,7 +292,7 @@ impl Board {
         match self.vcd.take() {
             Some(mut vcd) => {
                 vcd.dump(self.now, |net_idx| self.nets[net_idx].level)?;
-                vcd.flush()
+                vcd.finish(self.now)
             },
             None => Ok(())
         }

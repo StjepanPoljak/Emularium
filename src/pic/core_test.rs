@@ -132,7 +132,9 @@ fn portc_reads_input_when_tris_is_input() {
     // PORTC latch = 0x55, external input = 0x80
     let mut pic = run(&[movlw(0x55), movwf(0x07)], 2);
     set_inputs(&mut pic, "RC", 0x80);
-    // TRISC = 0x00 after reset: pins follow the latch
+    // TRISC = 0xFF after reset: the pins are inputs
+    assert_eq!(pic.bus.read(0x07), 0x80);
+    pic.bus.write(0x87, 0x00);
     assert_eq!(pic.bus.read(0x07), 0x55);
     pic.bus.write(0x87, 0xFF);
     assert_eq!(pic.bus.read(0x07), 0x80);
@@ -143,12 +145,13 @@ fn port_writes_drive_their_pins() {
     // MOVWF PORTB, then TRISB = 0xFE from bank 1
     let mut pic = run(&[movlw(0x01), movwf(0x06), bsf(0x03, 5), movlw(0xFE), movwf(0x06)], 1);
     let rb = |levels: [Level; 8]| (0..8).map(|bit| (PINS[6 + bit], levels[bit])).collect::<Vec<_>>();
-    let (l, h, z) = (Level::Low, Level::High, Level::Z);
+    let (h, z) = (Level::High, Level::Z);
 
-    assert_eq!(step_drives(&mut pic), rb([h, l, l, l, l, l, l, l]));
+    // after reset every pin is an input: the latch doesn't reach them
+    assert_eq!(step_drives(&mut pic), rb([z; 8]));
     assert_eq!(step_drives(&mut pic), vec![]);
     assert_eq!(step_drives(&mut pic), vec![]);
-    // input pins are released
+    // RB0 becomes an output; the others stay released
     assert_eq!(step_drives(&mut pic), rb([h, z, z, z, z, z, z, z]));
 }
 

@@ -102,7 +102,11 @@ impl Vcd {
         Ok(())
     }
 
-    pub fn flush(&mut self) -> io::Result<()> {
+    // Ends the trace at time now, so that the last levels have a length.
+    pub fn finish(&mut self, now: Time) -> io::Result<()> {
+        if self.time.is_some_and(|time| time < now) {
+            writeln!(self.out, "#{now}")?;
+        }
         self.out.flush()
     }
 }
