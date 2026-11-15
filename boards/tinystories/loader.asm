@@ -22,7 +22,7 @@
 
 	LIST P=16F876
 	#include <p16f876.inc>
-	__CONFIG _HS_OSC & _WDT_OFF & _PWRTE_ON & _BODEN_OFF & _LVP_OFF & _CP_OFF
+	__CONFIG _HS_OSC & _WDT_OFF & _PWRTE_ON & _BODEN_OFF & _LVP_ON & _CP_OFF
 
 #define EE0_CS	PORTC,0
 #define EE1_CS	PORTC,1
@@ -177,7 +177,7 @@ MAIN:
 	movwf	ADCON1
 	movlw	B'11011000'		; RA0-RA2 (LCD control), RA5 outputs
 	movwf	TRISA
-	clrf	TRISB			; LCD data
+	clrf	TRISB			; LCD data on RB4..RB7; RB3 is PGM
 	movlw	B'11010000'		; RC0-RC3, RC5 outputs; RC4 (MISO), RC6, RC7 inputs
 	movwf	TRISC
 	movlw	.10			; 113,636 baud at 20 MHz

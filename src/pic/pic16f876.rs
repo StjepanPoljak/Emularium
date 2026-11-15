@@ -151,7 +151,12 @@ pub struct P16 {
     pc: u16,
     w: u8,
     stack: [u16; 8],
-    sp: u8
+    sp: u8,
+    // Calls minus returns, to report overflow and underflow, which the
+    // chip doesn't; the deepest it got.
+    depth: i32,
+    pub max_depth: i32,
+    pub stack_errors: u32
 }
 
 impl MemDump {
@@ -163,6 +168,10 @@ impl MemDump {
 impl MCU for PIC16F876 {
     fn load_rom(&mut self, byte_data: &ByteData) {
         self.bus.load_rom(byte_data);
+    }
+
+    fn max_stack_depth(&self) -> usize {
+        self.core.max_depth as usize
     }
 
     fn pc(&self) -> usize {
@@ -340,6 +349,10 @@ impl Component for PIC16F876 {
         &PINS
     }
 
+    fn warnings(&self) -> u32 {
+        self.core.stack_errors
+    }
+
     fn step(&mut self, ctx: &mut Ctx) -> u32 {
         let insn = self.bus.fetch(self.core.pc);
         let cycles = self.core.exec_insn(insn, &mut self.bus).expect(format!("Unknown instruction: {:#x}", insn).as_str());
@@ -373,19 +386,39 @@ impl P16 {
         Self { pc: 0x0,
                w: 0x0,
                stack: [0u16; 8],
-               sp: 0 }
+               sp: 0,
+               depth: 0,
+               max_depth: 0,
+               stack_errors: 0 }
     }
 
     // The hardware stack is an 8-level circular buffer: overflow silently
-    // overwrites the oldest entry, underflow wraps around.
+    // overwrites the oldest entry, underflow wraps around. Both are
+    // reported, the first time.
     fn push(&mut self) {
         self.stack[self.sp as usize] = self.pc;
         self.sp = (self.sp + 1) % 8;
+        self.depth += 1;
+        self.max_depth = self.max_depth.max(self.depth);
+        if self.depth == 9 {
+            self.stack_error(format!("stack overflow: a 9th return address (pc {:#06x})", self.pc));
+        }
     }
 
     fn pop(&mut self) {
         self.sp = (self.sp + 7) % 8;
         self.pc = self.stack[self.sp as usize];
+        self.depth -= 1;
+        if self.depth == -1 {
+            self.stack_error(format!("stack underflow: return with an empty stack (to {:#06x})", self.pc));
+        }
+    }
+
+    fn stack_error(&mut self, msg: String) {
+        if self.stack_errors == 0 {
+            eprintln!("PIC16F876: {msg} (reported once)");
+        }
+        self.stack_errors += 1;
     }
 
     fn get_status_bit(&self, bit: StatusBit, bus: &mut impl Bus) -> bool {

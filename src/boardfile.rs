@@ -3,7 +3,7 @@
 //     name = "Tetris"                  # optional, shown by VNC viewers
 //
 //     [parts]
-//     U1 = { model = "PIC16F876", rom = "../../TETRIS.hex", fosc = "4MHz" }
+//     U1 = { model = "PIC16F876", rom = "tetris.hex", fosc = "4MHz" }
 //     J1 = { model = "ST7920", rotate = 270, vnc = 5900 }
 //     J2 = { model = "74C922", hold = "130ms", keys = { a = 3, space = 5 } }
 //
@@ -128,7 +128,7 @@ mod tests {
     const BOARD: &str = r#"
         name = "Test"
         [parts]
-        U1 = { model = "PIC16F876", rom = "TETRIS.hex", fosc = "4MHz" }
+        U1 = { model = "PIC16F876", rom = "boards/tetris/tetris.hex", fosc = "4MHz" }
         J2 = { model = "74C922", keys = { a = 3, space = 5 } }
         [nets]
         "+5V" = ["J2.DA"]

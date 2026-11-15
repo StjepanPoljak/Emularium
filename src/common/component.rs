@@ -71,6 +71,10 @@ pub trait Component {
 
     fn as_key_input(&self) -> Option<&dyn KeyInput> { None }
 
+    // Protocol or timing violations seen so far (each is also reported on
+    // stderr the first time).
+    fn warnings(&self) -> u32 { 0 }
+
     // The contents of a memory chip, for tests and debugging.
     fn memory(&self) -> Option<&[u8]> { None }
     fn as_key_input_mut(&mut self) -> Option<&mut dyn KeyInput> { None }

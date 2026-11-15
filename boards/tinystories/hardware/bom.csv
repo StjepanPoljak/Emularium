@@ -5,7 +5,7 @@ Qty,Manufacturer,Manufacturer Part Number,Description,Notes
 2,Abracon,ABL-20.000MHZ-B2,"20 MHz crystal, HC-49/US",
 10,Vishay,K220J15C0GF5TL2,"22 pF C0G ceramic, through-hole",crystal load
 10,Vishay,K104K15X7RF5TL2,"100 nF X7R ceramic, through-hole",decoupling
-20,Yageo,MFR-25FBF52-10K,"10 kOhm 1/4 W resistor",MCLR + chip-select pull-ups
+20,Yageo,MFR-25FBF52-10K,"10 kOhm 1/4 W resistor","MCLR + chip-select pull-ups, RB3/PGM pull-down"
 10,Yageo,MFR-25FBF52-1K,"1 kOhm 1/4 W resistor",series on RB6/RB7 for ICSP
 1,Bourns,3386P-1-103LF,"10 kOhm trimmer",LCD contrast
 1,FTDI,TTL-232R-5V,"USB to UART cable, 5 V logic",weight loader + 5 V supply

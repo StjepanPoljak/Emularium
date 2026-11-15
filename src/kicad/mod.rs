@@ -97,7 +97,7 @@ mod tests {
   (components
     (comp (ref "R1") (fields (field (name "Footprint"))))
     (comp (ref "J2") (fields (field (name "Emu") "74C922 pins=\"{j2_pins}\"")))
-    (comp (ref "U1") (fields (field (name "Emu") "PIC16F876 rom=TETRIS.hex"))))
+    (comp (ref "U1") (fields (field (name "Emu") "PIC16F876 rom=boards/tetris/tetris.hex"))))
   (nets
     (net (code "1") (name "+5V")
       (node (ref "J2") (pin "5") (pinfunction "Pin_5"))
@@ -160,7 +160,7 @@ Nets with one emulated pin: X0, X2");
         assert_eq!(err.to_string(), "J2: 74C922 has no pin Q");
 
         let mut board = Board::new();
-        let text = netlist("1:D0").replace("PIC16F876 rom=TETRIS.hex", "PIC16F876 rom=missing.hex");
+        let text = netlist("1:D0").replace("PIC16F876 rom=boards/tetris/tetris.hex", "PIC16F876 rom=missing.hex");
         let err = load_text(&mut board, &text).err().unwrap().to_string();
     assert!(err.starts_with("U1: ./missing.hex: "), "{err}");
     }

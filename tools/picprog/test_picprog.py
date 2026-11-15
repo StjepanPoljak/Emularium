@@ -29,7 +29,7 @@ def image_of(sim):
 
 def test_hex_round_trip():
     image = picprog.read_hex((BOARDS / "tinystories.hex").read_text())
-    assert image.config == 0x3F32                   # HS, WDT off, PWRT on, BOR off, LVP off
+    assert image.config == 0x3FB2                   # HS, WDT off, PWRT on, BOR off, LVP on
     assert len(image.flash) > 1000
     again = picprog.read_hex(picprog.write_hex(image))
     assert again == image
@@ -95,15 +95,27 @@ def test_too_big_for_the_chip():
         picprog.write(Icsp(sim), Image(flash={5000: 0}, config=BLANK), log=quiet)
 
 
-def test_low_voltage_programming():
-    image = picprog.read_hex((BOARDS / "loader.hex").read_text())   # _LVP_OFF
-    sim = chip(vpp="5v")                            # a new chip: LVP on
+@pytest.mark.parametrize("firmware", ["tinystories.hex", "loader.hex"])
+def test_low_voltage_programming(firmware):
+    image = picprog.read_hex((BOARDS / firmware).read_text())     # _LVP_ON
+    sim = chip(vpp="5v", fill=True)                 # LVP on, as new chips come
+    icsp = Icsp(sim, lvp=True)
+    picprog.write(icsp, image, log=quiet)
+    assert sim.config == image.config
+    assert {a: sim.flash[a] for a in image.flash} == image.flash
+    picprog.write(icsp, image, log=quiet)           # and it stays reachable
+    assert picprog.verify(icsp, picprog.detect(icsp)[0], image) == []
+
+
+def test_low_voltage_refuses_to_lock_itself_out():
+    image = picprog.read_hex((BOARDS / "loader.hex").read_text())
+    image.config &= ~picprog.LVP_BIT                # _LVP_OFF
+    sim = chip(vpp="5v")
     icsp = Icsp(sim, lvp=True)
     with pytest.raises(ProgrammerError, match="--keep-lvp"):
         picprog.write(icsp, image, log=quiet)
     picprog.write(icsp, image, keep_lvp=True, log=quiet)
     assert sim.config == image.config | picprog.LVP_BIT
-    assert sim.flash[:len(image.flash)] == [image.flash[a] for a in range(len(image.flash))]
 
 
 def test_low_voltage_needs_the_lvp_bit():

@@ -16,4 +16,6 @@ pub trait MCU {
     fn pc(&self) -> usize;
     fn dump_mem(&self, addr: usize, item_count: usize) -> Option<MemDump> { None }
     fn dump_regs(&self) -> Option<HashMap<&str, RegDump>> { None }
+    // The most return addresses on the stack so far.
+    fn max_stack_depth(&self) -> usize { 0 }
 }

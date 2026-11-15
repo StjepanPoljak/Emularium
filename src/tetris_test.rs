@@ -1,4 +1,4 @@
-// Headless smoke tests running the real TETRIS.hex game image.
+// Headless smoke tests running the Tetris game, boards/tetris/tetris.hex.
 use std::collections::HashMap;
 use std::path::Path;
 use crate::{ Board, DEFAULT_BOARD };
@@ -48,6 +48,14 @@ impl Tetris {
 
     fn press(&mut self, key: u8) {
         self.board.push_key(key);
+    }
+
+    // Protocol and timing violations reported by the PIC and the LCD.
+    fn warnings(&mut self) -> u32 {
+        ["U1", "J1"].iter().map(|name| {
+            let idx = self.board.find_component(name).unwrap();
+            self.board.get_component(idx).unwrap().warnings()
+        }).sum()
     }
 
     fn run_until_pc(&mut self, pc: usize, timeout: Time) -> bool {
@@ -100,6 +108,23 @@ fn keys_move_piece_once_per_press() {
     check(&mut t, b'd', 1);
     check(&mut t, b'd', 1);
     assert_eq!(t.board.contentions(), 0);
+    assert_eq!(t.warnings(), 0);
+}
+
+// The title screen as the LCD shows it (unrotated; '#' is a lit pixel).
+#[test]
+fn title_screen() {
+    let mut t = Tetris::new();
+    assert!(t.run_until_pc(INTRO_WAIT, 7 * S), "title screen never waits for input");
+    let lcd = t.board.find_component("J1").unwrap();
+    let display = t.board.get_component(lcd).unwrap().as_display_mut().unwrap();
+    let (w, h) = display.size();
+    let mut pixels = vec![0u32; w * h];
+    display.render(&mut pixels);
+    let lit = *pixels.iter().max().unwrap();
+    let screen: String = pixels.chunks(w).map(|row| row.iter().map(|&p| if p == lit { '#' } else { '.' }).collect::<String>() + "\n").collect();
+    assert_eq!(screen, include_str!("tetris_title.txt"));
+    assert_eq!(t.warnings(), 0);
 }
 
 #[test]

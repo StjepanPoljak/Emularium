@@ -3,7 +3,7 @@
 name = "Tetris"
 
 [parts]
-U1 = { model = "PIC16F876", rom = "../../TETRIS.hex", fosc = "4MHz" }
+U1 = { model = "PIC16F876", rom = "tetris.hex", fosc = "4MHz" }
 # Mounted on its side: the game draws the well across the long edge.
 J1 = { model = "ST7920", rotate = 270, scale = 4 }
 J2 = { model = "74C922", hold = "130ms", keys = { a = 3, d = 4, s = 2, space = 5, k = 6, left = 3, right = 4, down = 2, up = 5 } }
@@ -15,3 +15,5 @@ LCD_E = ["U1.RA2", "J1.E"]
 "LCD_DB0..7" = ["U1.RC0..7", "J1.DB0..7"]
 "KEY_D0..3" = ["U1.RB0..3", "J2.D0..3"]
 KEY_DA = ["U1.RB4", "J2.DA"]
+# Parallel bus, never reset.
+"+5V" = ["J1.PSB", "J1.RST"]

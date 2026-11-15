@@ -33,8 +33,12 @@ tinystories.asm` in `boards/tinystories`.
 
 SPI is bit-banged on the MSSP pins (RC3 SCK, RC4 MISO, RC5 MOSI), so the
 hardware SPI can take over later; each chip has its own select (RC0, RC1,
-RA5, RC2). The LCD is on RA0-RA2 and PORTB. RC6/RC7 are the USART, for
-loading the weights.
+RA5, RC2). The LCD runs on a 4-bit bus: RS, RW, E on RA0-RA2 and DB4-DB7
+on RB4-RB7, with DB0-DB3 tied to GND; the firmware polls its busy flag.
+RC6/RC7 are the USART, for loading the weights. RB3 is left to low-voltage
+programming: every firmware for the board keeps the config word's LVP bit
+on, so the PIC can be programmed without 12 V (`tools/picprog`), and RB3
+needs a 10 k pull-down to GND.
 
 ## Loading the weights
 

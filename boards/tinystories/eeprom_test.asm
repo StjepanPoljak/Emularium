@@ -14,7 +14,7 @@
 
 	LIST P=16F876
 	#include <p16f876.inc>
-	__CONFIG _HS_OSC & _WDT_OFF & _PWRTE_ON & _BODEN_OFF & _LVP_OFF & _CP_OFF
+	__CONFIG _HS_OSC & _WDT_OFF & _PWRTE_ON & _BODEN_OFF & _LVP_ON & _CP_OFF
 
 ; The MSSP pins, so the hardware SPI can take over later; RC6 and RC7 stay
 ; free for the USART.
@@ -126,7 +126,7 @@ MAIN:
 	MOVWF	ADCON1
 	MOVLW	B'11011000'		; RA0-RA2 (LCD control), RA5 outputs
 	MOVWF	TRISA
-	CLRF	TRISB			; LCD data
+	CLRF	TRISB			; LCD data on RB4..RB7; RB3 is PGM
 	MOVLW	B'11010000'		; RC0-RC3, RC5 outputs; RC4 (MISO) input
 	MOVWF	TRISC
 	BCF	STATUS,RP0

@@ -81,6 +81,14 @@ impl Fw {
         Some(Self { board, pic, sram, syms, _dir: dir })
     }
 
+    // Protocol and timing violations reported by the PIC and the LCD.
+    pub fn warnings(&mut self) -> u32 {
+        ["U1", "J1"].iter().map(|name| {
+            let idx = self.board.find_component(name).unwrap();
+            self.board.get_component(idx).unwrap().warnings()
+        }).sum()
+    }
+
     pub fn sym(&self, name: &str) -> usize {
         self.syms[name]
     }
@@ -209,6 +217,37 @@ fn tinystories_fw_matches_reference() {
             _ => unreachable!()
         }
     }
+    assert_eq!(fw.warnings(), 0, "LCD or PIC warnings");
+}
+
+// The start-up screen on the LCD after 1 s is splash.png, as data.inc
+// has it (SPLASH_BMP: 64 rows of 16 bytes, leftmost pixel in the MSB).
+#[test]
+fn tinystories_fw_splash() {
+    let Some(mut fw) = Fw::new(1) else { return };
+    fw.board.init();
+    while fw.board.now() < 1000 * MS {
+        fw.board.step();
+    }
+    let data = std::fs::read_to_string(format!("{DIR}/data.inc")).unwrap();
+    let table = &data[data.find("SPLASH_BMP:").unwrap()..];
+    let bytes: Vec<u8> = table.lines().skip(1).take_while(|line| line.trim_start().starts_with("dt"))
+        .flat_map(|line| line.trim_start()[2..].split(',').map(|v| u8::from_str_radix(v.trim().trim_start_matches("0x"), 16).unwrap()).collect::<Vec<_>>())
+        .collect();
+    assert_eq!(bytes.len(), 64 * 16);
+    let lcd = fw.board.find_component("J1").unwrap();
+    let display = fw.board.get_component(lcd).unwrap().as_display_mut().unwrap();
+    let (w, h) = display.size();
+    let mut pixels = vec![0u32; w * h];
+    display.render(&mut pixels);
+    let lit = *pixels.iter().max().unwrap();
+    for y in 0..h {
+        for x in 0..w {
+            let want = bytes[y * 16 + x / 8] & (0x80 >> (x % 8)) != 0;
+            assert_eq!(pixels[y * w + x] == lit, want, "pixel ({x}, {y})");
+        }
+    }
+    assert_eq!(fw.warnings(), 0, "LCD or PIC warnings");
 }
 
 // Runs the firmware for TS_TOKENS tokens (default 40) with seed TS_SEED

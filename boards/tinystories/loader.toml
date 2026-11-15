@@ -27,13 +27,15 @@ EE0_CS = ["U1.RC0", "U2.CS"]
 EE1_CS = ["U1.RC1", "U3.CS"]
 EE2_CS = ["U1.RA5", "U4.CS"]
 RAM_CS = ["U1.RC2", "U5.CS"]
-"+5V" = ["U2.HOLD", "U2.WP", "U3.HOLD", "U3.WP", "U4.HOLD", "U4.WP", "U5.HOLD"]
+"+5V" = ["U2.HOLD", "U2.WP", "U3.HOLD", "U3.WP", "U4.HOLD", "U4.WP", "U5.HOLD", "J1.PSB", "J1.RST"]
 
 # The adapter's TX goes to the PIC's RX and the other way round.
 SER_TX = ["U1.RC6", "P1.RX"]
 SER_RX = ["P1.TX", "U1.RC7"]
 
+# The LCD as on tinystories.toml: 4-bit bus, DB0..DB3 tied low.
 LCD_RS = ["U1.RA0", "J1.RS"]
 LCD_RW = ["U1.RA1", "J1.RW"]
 LCD_E = ["U1.RA2", "J1.E"]
-"LCD_DB0..7" = ["U1.RB0..7", "J1.DB0..7"]
+"LCD_DB4..7" = ["U1.RB4..7", "J1.DB4..7"]
+GND = ["J1.DB0", "J1.DB1", "J1.DB2", "J1.DB3"]

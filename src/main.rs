@@ -108,6 +108,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     unsafe { install_interrupt_signal() };
     board.run();
+    for (name, count) in board.warnings() {
+        eprintln!("{name}: {count} warning(s) in all");
+    }
 
     board.stop_trace()?;
     Ok(())

@@ -18,7 +18,7 @@ python3 picprog.py vpp 30                # MCLR at VPP for 30 s, to measure it
 config word, the chip is alive. If it prints "no PIC answers", check the
 wiring and VPP.
 
-Writing the TinyStories firmware, which is 7,292 words, takes about 17 s on
+Writing the TinyStories firmware, which is 7,340 words, takes about 17 s on
 a PIC16F876A, which writes eight words at a time. On a PIC16F876 it takes
 about 40 s, because that chip writes one word at a time. Verifying adds a
 few seconds.
@@ -87,24 +87,29 @@ On Raspberry Pi OS the default user is already in the `gpio` group, which
 ## Low-voltage programming (no 12 V)
 
 The 876 and 876A can also be programmed with VDD alone. This works only
-while the config word's LVP bit is on. New chips come with LVP on. The
-TinyStories firmware (`_LVP_OFF`) turns it off, and old chips may have it
-off too.
+while the config word's LVP bit is on. New chips come with LVP on, and the
+TinyStories firmware keeps it on (`_LVP_ON`, as do the serial loader and
+the EEPROM test), so a new chip never needs 12 V for that board. A chip
+whose LVP bit was turned off, as old chips may have, needs VPP once.
 
 To use it, connect Q2's emitter to 5 V instead of the boost and pass
 `--lvp`. picprog then raises RB3 (PGM) before MCLR.
 
 picprog refuses to write a config word with LVP off in this mode, because
 the chip would then be unreachable without VPP. `--keep-lvp` keeps LVP on
-instead, but RB3 is then the PGM pin rather than an I/O pin. On the
-TinyStories board RB3 is an LCD data line, so for that board build the
-boost.
+instead.
+
+With LVP on, RB3 is the PGM pin rather than an I/O pin. Give it a 10 k
+pull-down on the target board: if it floats high, the chip can drop into
+programming mode. The TinyStories board leaves RB3 alone for this; its LCD
+runs on a 4-bit bus on RB4..RB7.
 
 ## Programming on the TinyStories board
 
 Program the chip in the breadboard and then move it to the board. On the
-board, RB3, RB6 and RB7 are LCD data lines, and the LCD can drive them while
-the PIC is in reset.
+board, RB6 and RB7 (PGC and PGD) are LCD data lines, and the LCD drives
+them during a read, which RW and E can trigger while they float with the
+PIC in reset.
 
 ## Tests
 

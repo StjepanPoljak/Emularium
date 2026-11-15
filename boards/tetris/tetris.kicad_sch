@@ -3444,7 +3444,7 @@
 				(hide yes)
 			)
 		)
-		(property "Emu" "PIC16F876 rom=../../TETRIS.hex fosc=4MHz"
+		(property "Emu" "PIC16F876 rom=tetris.hex fosc=4MHz"
 			(at 152.4 143.51 0)
 			(effects
 				(font

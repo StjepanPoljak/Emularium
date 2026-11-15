@@ -1,12 +1,15 @@
-; ST7920 LCD in graphics mode, 8-bit parallel (RA0 RS, RA1 RW, RA2 E,
-; PORTB data), with fixed delays instead of busy polling: 10 lines of 32
-; characters in a 4x6 font. The text of the 10 lines is kept in SRAM
-; (TXT_AREA, a ring of lines) so the screen can scroll.
+; ST7920 LCD in graphics mode on a 4-bit parallel bus (RA0 RS, RA1 RW,
+; RA2 E, RB4..RB7 to DB4..DB7, DB0..DB3 tied low), polling the busy flag:
+; 10 lines of 32 characters in a 4x6 font. The text of the 10 lines is
+; kept in SRAM (TXT_AREA, a ring of lines) so the screen can scroll.
+; RB3 is left to low-voltage programming (PGM); RB0..RB2 are unused.
+;
+; At 20 MHz every E cycle is kept over the ST7920's 1.2 us (TC).
 ;
 ; Print-time variables reuse RAM the forward pass doesn't need between
 ; tokens (see the P_ names in tinystories.asm).
 
-; About 80 us at 20 MHz: an ST7920 instruction takes 72 us.
+; About 80 us at 20 MHz: an ST7920 instruction takes 72 us at 540 kHz.
 LCD_DELAY:
 	movlw	130
 	movwf	P_D
@@ -15,17 +18,68 @@ LCD_DELAY_LOOP:
 	goto	LCD_DELAY_LOOP
 	return
 
-LCD_CMD:
+; Waits while the LCD is busy: BF is bit 7 of the first nibble read with
+; RS = 0, RW = 1. Leaves RS low, RW low and RB4..RB7 outputs.
+LCD_WAIT:
+	bsf	STATUS,RP0
+	movlw	0xF0			; RB4..RB7 inputs
+	iorwf	TRISB,F
+	bcf	STATUS,RP0
 	bcf	LCD_RS
-	goto	LCD_OUT
-LCD_DATA:
-	bsf	LCD_RS
-LCD_OUT:
-	movwf	PORTB
+	bsf	LCD_RW
+LCD_WAIT_LOOP:
+	bsf	LCD_E
+	nop
+	movf	PORTB,W			; BF, AC6..AC4
+	bcf	LCD_E
+	movwf	P_D
+	nop
+	nop
+	bsf	LCD_E			; AC3..AC0
+	nop
+	nop
+	bcf	LCD_E
+	btfsc	P_D,7
+	goto	LCD_WAIT_LOOP
 	bcf	LCD_RW
+	bsf	STATUS,RP0
+	movlw	0x0F
+	andwf	TRISB,F
+	bcf	STATUS,RP0
+	return
+
+; Sends instruction (LCD_CMD) or data byte (LCD_DATA) W, high nibble first.
+LCD_CMD:
+	movwf	P_D3
+	call	LCD_WAIT
+	goto	LCD_PUT
+LCD_DATA:
+	movwf	P_D3
+	call	LCD_WAIT
+	bsf	LCD_RS
+LCD_PUT:
+	movf	P_D3,W
+	andlw	0xF0
+	movwf	PORTB
 	bsf	LCD_E
 	nop
 	bcf	LCD_E
+	swapf	P_D3,W
+	andlw	0xF0
+	movwf	PORTB
+	nop
+	bsf	LCD_E
+	nop
+	bcf	LCD_E
+	return
+
+; Sends W's high nibble alone (RS = 0), then waits 160 us.
+LCD_NIBBLE:
+	movwf	PORTB
+	bsf	LCD_E
+	nop
+	bcf	LCD_E
+	call	LCD_DELAY
 	goto	LCD_DELAY
 
 ; Writes the 16 pixels P_HI:P_LO at screen row P_Y (0..63), word P_W
@@ -60,23 +114,33 @@ DELAY_MS_INNER:
 	return
 
 LCD_INIT:
-	movlw	50
+	movlw	50			; over the 40 ms after power-on
 	call	DELAY_MS
-	movlw	0x30			; 8-bit interface, basic instructions
-	call	LCD_CMD
+	; Nibbles 3, 3, 3, 2 leave the LCD in 4-bit mode whatever state it
+	; is in: 8-bit after power-on, or 4-bit, even halfway through a
+	; byte, after a reset of the PIC alone. The busy flag can't be read
+	; before that, so these wait 160 us each.
+	bcf	LCD_RS
+	bcf	LCD_RW
 	movlw	0x30
+	call	LCD_NIBBLE
+	movlw	0x30
+	call	LCD_NIBBLE
+	movlw	0x30
+	call	LCD_NIBBLE
+	movlw	0x20
+	call	LCD_NIBBLE
+	movlw	0x20			; 4-bit interface, basic instructions
 	call	LCD_CMD
 	movlw	0x0C			; display on
 	call	LCD_CMD
 	movlw	0x01			; clear
 	call	LCD_CMD
-	movlw	2
-	call	DELAY_MS
 	movlw	0x06			; entry mode
 	call	LCD_CMD
-	movlw	0x34			; extended instructions
+	movlw	0x24			; extended instructions
 	call	LCD_CMD
-	movlw	0x36			; graphics on
+	movlw	0x26			; graphics on
 	call	LCD_CMD
 LCD_CLEAR:
 	clrf	P_HI

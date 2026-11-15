@@ -307,6 +307,12 @@ impl Board {
     }
 
     #[allow(unused)]
+    // Parts that reported protocol or timing violations, and how many.
+    pub fn warnings(&self) -> Vec<(String, u32)> {
+        self.components.iter().filter(|bc| bc.component.warnings() > 0)
+            .map(|bc| (bc.name.clone(), bc.component.warnings())).collect()
+    }
+
     pub fn find_component(&self, name: &str) -> Option<usize> {
         self.components.iter().position(|bc| bc.name == name)
     }

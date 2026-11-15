@@ -1,6 +1,6 @@
 // Which model emulates a part, with its parameters: a [parts] entry of a
 // board file, or the Emu field of a KiCad symbol, e.g.
-// `PIC16F876 rom=TETRIS.hex fosc=4MHz` or `74C922 keys="a:3 space:5"`.
+// `PIC16F876 rom=tetris.hex fosc=4MHz` or `74C922 keys="a:3 space:5"`.
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -11,7 +11,7 @@ use crate::common::time::{ Time, PS, NS, US, MS, S };
 use crate::hw::eeprom25lc1024::EEPROM25LC1024;
 use crate::hw::keypad::Keypad;
 use crate::hw::sram23lc1024::SRAM23LC1024;
-use crate::hw::st7920::ST7920;
+use crate::hw::st7920::{ self, ST7920 };
 use crate::hw::uart::Uart;
 use crate::pic::pic16f876::PIC16F876;
 use crate::screen::ScreenOpts;
@@ -20,7 +20,8 @@ use crate::screen::ScreenOpts;
 const ST7920_PINOUT: &[(&str, &str)] = &[
     ("4", "RS"), ("5", "RW"), ("6", "E"),
     ("7", "DB0"), ("8", "DB1"), ("9", "DB2"), ("10", "DB3"),
-    ("11", "DB4"), ("12", "DB5"), ("13", "DB6"), ("14", "DB7")
+    ("11", "DB4"), ("12", "DB5"), ("13", "DB6"), ("14", "DB7"),
+    ("15", "PSB"), ("17", "RST")
 ];
 // MM74C922 DIP-18: data outputs A..D and DA.
 const MM74C922_PINOUT: &[(&str, &str)] = &[("17", "D0"), ("16", "D1"), ("15", "D2"), ("14", "D3"), ("12", "DA")];
@@ -188,9 +189,13 @@ impl PartSpec {
                 (Box::new(pic), &[])
             },
             "ST7920" => {
-                self.check_params(&["vnc", "scale", "rotate"])?;
+                self.check_params(&["vnc", "scale", "rotate", "fosc"])?;
                 screen = Some(self.screen_opts()?);
-                (Box::new(ST7920::new()), ST7920_PINOUT)
+                let fosc = self.param("fosc").map(parse_hz).transpose()?.unwrap_or(st7920::DEFAULT_FOSC);
+                if !(470_000..=600_000).contains(&fosc) {
+                    return Err(format!("ST7920 fosc={}: the datasheet allows 470kHz to 600kHz", self.param("fosc").unwrap()));
+                }
+                (Box::new(ST7920::new(fosc)), ST7920_PINOUT)
             },
             "74C922" => {
                 self.check_params(&["hold", "keys"])?;
@@ -305,7 +310,8 @@ mod tests {
 
         let err = |field: &str| PartSpec::parse(field).unwrap().build(Path::new(".")).err().unwrap();
         assert_eq!(err("74C922 pins=\"3:Q\""), "74C922 has no pin Q");
-        assert_eq!(err("ST7920 fosc=1MHz"), "ST7920 has no parameter fosc");
+        assert_eq!(err("ST7920 fosc=1MHz"), "ST7920 fosc=1MHz: the datasheet allows 470kHz to 600kHz");
+        assert_eq!(err("ST7920 psb=0"), "ST7920 has no parameter psb");
         assert_eq!(err("ST7920 rotate=45"), "rotate=45: expected 0, 90, 180 or 270");
         let lcd = PartSpec::parse("ST7920 vnc=5901 rotate=270").unwrap().build(Path::new(".")).unwrap();
         assert_eq!(lcd.screen, Some(ScreenOpts { port: Some(5901), scale: 4, rotate: 270 }));

@@ -20,7 +20,7 @@ undriven, and timing is modelled as delays between events.
 | Model | Part |
 |---|---|
 | `PIC16F876` | Microchip PIC16F876 at 4 MHz, running an Intel HEX image |
-| `ST7920` | 128x64 graphic LCD on a parallel bus, with busy-flag readback |
+| `ST7920` | 128x64 graphic LCD: 8-bit, 4-bit and serial bus, busy flag and execution times, text and graphics, bus timing checks |
 | `74C922` | 16-key keypad encoder |
 | `23LC1024` | 128 KB SPI SRAM |
 | `25LC1024` | 128 KB SPI EEPROM, optionally preloaded from a file |
@@ -31,8 +31,8 @@ doesn't emulate interrupts, TMR0, TMR2, the watchdog, MSSP, the ADC or CCP.
 
 Three boards come with it:
 
-- `boards/tetris`: a PIC playing Tetris (`TETRIS.hex`) on an ST7920 LCD, with
-  a 74C922 keypad.
+- `boards/tetris`: a PIC playing Tetris (`tetris.asm`) on an ST7920 LCD,
+  with a 74C922 keypad.
 - `boards/spiram`: a PIC bit-banging SPI to a 23LC1024 and checking what it
   reads back.
 - `boards/tinystories`: a PIC running a 260K-parameter language model,
@@ -105,7 +105,7 @@ A board file names the parts and lists which pins each net connects:
 name = "Tetris"
 
 [parts]
-U1 = { model = "PIC16F876", rom = "../../TETRIS.hex", fosc = "4MHz" }
+U1 = { model = "PIC16F876", rom = "tetris.hex", fosc = "4MHz" }
 J1 = { model = "ST7920", rotate = 270, scale = 4 }
 
 [nets]
@@ -114,7 +114,7 @@ LCD_E = ["U1.RA2", "J1.E"]
 ```
 
 In a KiCad schematic, give each part to emulate an `Emu` field such as
-`PIC16F876 rom=../../TETRIS.hex fosc=4MHz`. Everything else is treated as a
+`PIC16F876 rom=tetris.hex fosc=4MHz`. Everything else is treated as a
 drawing only. Loading a `.kicad_sch` file needs `kicad-cli`; an exported
 `.net` file doesn't.
 
@@ -149,6 +149,7 @@ Some tests call external tools:
 
 - [docs/BOARDS.md](docs/BOARDS.md): board files, models and VNC screens.
 - [docs/SPI_RAM.md](docs/SPI_RAM.md): the 23LC1024, its wiring and its model.
+- [docs/ST7920.md](docs/ST7920.md): the LCD controller and its model.
 - [docs/TINYSTORIES.md](docs/TINYSTORIES.md): the TinyStories board and its firmware.
 - [docs/ROADMAP.md](docs/ROADMAP.md): where this is going, which is using
   Emularium as a testbed for computer architecture experiments, such as an

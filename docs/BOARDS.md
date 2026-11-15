@@ -17,7 +17,7 @@ file is the quick option when there's no schematic yet.
 name = "Tetris"                     # optional, shown in VNC viewers' title bars
 
 [parts]
-U1 = { model = "PIC16F876", rom = "../../TETRIS.hex", fosc = "4MHz" }
+U1 = { model = "PIC16F876", rom = "tetris.hex", fosc = "4MHz" }
 J1 = { model = "ST7920", rotate = 270, scale = 4 }
 J2 = { model = "74C922", hold = "130ms", keys = { a = 3, space = 5, left = 3 } }
 
@@ -59,7 +59,7 @@ Each board directory has its diagram as `NAME.svg`.
 | model | parameters | pins |
 |---|---|---|
 | `PIC16F876` | `rom` (Intel HEX), `fosc` (`4MHz`) | `RA0`-`RA5`, `RB0`-`RB7`, `RC0`-`RC7` |
-| `ST7920` | `vnc` (port), `scale` (1-16, default 4), `rotate` (0/90/180/270 clockwise) | `RS RW E DB0`-`DB7` |
+| `ST7920` | `vnc` (port), `scale` (1-16, default 4), `rotate` (0/90/180/270 clockwise), `fosc` (`470kHz`-`600kHz`, default `540kHz`: execution times scale with it) | `RS RW E DB0`-`DB7 PSB RST` (PSB and RST read high when open) |
 | `74C922` | `hold` (`130ms`), `keys` (`{ a = 3, space = 5 }`) | `D0`-`D3 DA` |
 | `23LC1024` | | `CS SO SI SCK HOLD` |
 | `25LC1024` | `image` (file to preload), `offset` (where this chip's 128K starts in it: `131072` or `128K`) | `CS SO SI SCK HOLD WP` |
