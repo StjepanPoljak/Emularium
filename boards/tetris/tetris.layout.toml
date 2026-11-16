@@ -1,0 +1,6 @@
+# Where tools/schematic.py draws each part (grid cells of 10 px);
+# drag the parts in its editor and Save, or edit by hand.
+
+U1 = { x = 0, y = 0, rotate = 0, mirror = false }
+J2 = { x = 36, y = -10, rotate = 0, mirror = false }
+J1 = { x = 62, y = 14, rotate = 0, mirror = false }

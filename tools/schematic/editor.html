@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schematic</title>
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+<header>
+  <div class="who"><b id="board-name"></b><span id="board-file"></span></div>
+  <nav>
+    <button data-act="rotate" title="Rotate the selected part (R, Shift+R the other way)">Rotate <kbd>R</kbd></button>
+    <button data-act="mirror" title="Mirror the selected part (M)">Mirror <kbd>M</kbd></button>
+    <span class="sep"></span>
+    <button data-act="labels" title="Net names at the microcontroller's pins (L)">Labels <kbd>L</kbd></button>
+    <button data-act="fit" title="Fit the drawing to the window (F)">Fit <kbd>F</kbd></button>
+    <button data-act="auto" title="Place all parts automatically">Auto-place</button>
+    <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <span class="sep"></span>
+    <button data-act="download" title="Download the drawing as SVG">SVG</button>
+    <button data-act="save" class="primary" title="Write NAME.layout.toml and NAME.svg next to the board file (Ctrl+S)">Save</button>
+  </nav>
+</header>
+<main>
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="dots" width="10" height="10" patternUnits="userSpaceOnUse">
+        <circle cx="0" cy="0" r="0.7" fill="#d9d4c8"/>
+      </pattern>
+      <pattern id="dots5" width="50" height="50" patternUnits="userSpaceOnUse">
+        <circle cx="0" cy="0" r="1.2" fill="#cfc9bb"/>
+      </pattern>
+    </defs>
+    <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#dots)"/>
+    <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#dots5)"/>
+    <g id="world"></g>
+  </svg>
+  <aside>
+    <h2>Nets</h2>
+    <ul id="nets"></ul>
+    <p class="help">Drag parts; wires follow. Hover a wire or a net to trace it, click to keep it lit.
+      Wheel zooms, dragging the paper pans, arrow keys nudge.</p>
+  </aside>
+</main>
+<footer><span id="status"></span></footer>
+<div id="toast"></div>
+<script>
+window.onerror = (msg, src, line) => {
+  const s = document.getElementById("status");
+  s.textContent = `Error: ${msg} (${(src || "").split("/").pop()}:${line})`;
+  s.className = "warn";
+};
+window.BOARD = /*BOARD*/null;
+</script>
+<script src="router.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>

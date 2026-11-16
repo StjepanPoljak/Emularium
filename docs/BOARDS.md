@@ -40,19 +40,43 @@ LCD_E = ["U1.RA2", "J1.E"]
 `boards/tetris/tetris.toml` and `boards/spiram/spiram.toml` wire exactly
 what their schematics do; a test checks this.
 
-## Diagrams
+## Schematics
 
-`tools/schematic.py` draws a board file as a block diagram with Graphviz:
-parts as boxes, one line per pair of parts listing the nets and pins it
-carries, and a hub for nets shared by three or more parts (an SPI bus) or
-for a power rail:
+`tools/schematic.py` draws a board file as a schematic, in the browser:
 
 ```sh
-tools/schematic.py boards/tinystories/tinystories.toml           # -> tinystories.svg
-tools/schematic.py boards/tetris/tetris.toml -o tetris.png
+tools/schematic.py boards/tinystories/tinystories.toml        # opens the editor
+tools/schematic.py boards/tinystories/tinystories.toml --svg  # just writes tinystories.svg
 ```
 
-Each board directory has its diagram as `NAME.svg`.
+- Parts are drawn with their package's pins and pin numbers (the 28 pins
+  of the PIC, the 20 of the LCD module); pins no net uses are grey. The
+  symbols are in `tools/schematic/symbols.json`; a model that isn't there
+  gets a plain box with the pins its nets use.
+- Wires are routed on a 10 px grid like PCB tracks: horizontal and
+  vertical only, never two nets on one track, crossings only straight
+  through, a dot where a net branches. Power nets get power symbols.
+- Drag a part and the wires follow. R rotates the selected part (Shift+R
+  the other way), M mirrors it, arrow keys nudge it, F fits the drawing
+  to the window, L shows or hides net names, Ctrl+Z undoes. The wheel
+  zooms; dragging the paper pans. Hovering a wire or a net in the list
+  lights it up; clicking keeps it lit.
+- Save (Ctrl+S) writes where the parts are to `NAME.layout.toml` and the
+  drawing to `NAME.svg`, next to the board file. Without a layout file the
+  parts are placed automatically: several arrangements are routed and the
+  one with the shortest, straightest wires is kept (Auto-place does the
+  same in the editor).
+- `--svg` loads the page in headless Firefox or Chromium; `-o` picks
+  another file, `.pdf` or `.png` too (with `rsvg-convert`).
+
+The editor is plain HTML and JavaScript (`tools/schematic/`), served by
+the script on 127.0.0.1; nothing is downloaded. Each board directory has its
+drawing as `NAME.svg`.
+
+For working on the router: `?selftest=200` after the editor's URL moves
+parts at random 200 times and checks every routing (all pins joined, no
+shared tracks, crossings only straight through, no wire touching another
+net's pin), reporting in the status bar; `?debug` shows each net's cost.
 
 ## Models
 

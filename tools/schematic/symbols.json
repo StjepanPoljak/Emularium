@@ -1,0 +1,143 @@
+{
+  "_doc": ["Schematic symbols for tools/schematic.py, one per model, with the package's", "real pins. pins: number -> [name, alternate functions, type]; the name is the", "model's pin name (what board files use), type is io, power or nc.", "left/right list pin numbers from top to bottom; null leaves a gap.", "width is the body's width in grid cells (10 px)."],
+  "PIC16F876": {
+    "kind": "mcu",
+    "package": "SDIP-28",
+    "width": 16,
+    "pins": {
+      "1": ["MCLR", "VPP", "io"],
+      "2": ["RA0", "AN0", "io"],
+      "3": ["RA1", "AN1", "io"],
+      "4": ["RA2", "AN2", "io"],
+      "5": ["RA3", "AN3", "io"],
+      "6": ["RA4", "T0CKI", "io"],
+      "7": ["RA5", "AN4/SS", "io"],
+      "8": ["VSS", "", "power"],
+      "9": ["OSC1", "CLKI", "io"],
+      "10": ["OSC2", "CLKO", "io"],
+      "11": ["RC0", "T1OSO", "io"],
+      "12": ["RC1", "T1OSI", "io"],
+      "13": ["RC2", "CCP1", "io"],
+      "14": ["RC3", "SCK", "io"],
+      "15": ["RC4", "SDI", "io"],
+      "16": ["RC5", "SDO", "io"],
+      "17": ["RC6", "TX", "io"],
+      "18": ["RC7", "RX", "io"],
+      "19": ["VSS", "", "power"],
+      "20": ["VDD", "", "power"],
+      "21": ["RB0", "INT", "io"],
+      "22": ["RB1", "", "io"],
+      "23": ["RB2", "", "io"],
+      "24": ["RB3", "PGM", "io"],
+      "25": ["RB4", "", "io"],
+      "26": ["RB5", "", "io"],
+      "27": ["RB6", "PGC", "io"],
+      "28": ["RB7", "PGD", "io"]
+    },
+    "left": ["1", null, "9", "10", null, "2", "3", "4", "5", "6", "7", null, "20", "8", "19"],
+    "right": ["21", "22", "23", "24", "25", "26", "27", "28", null, "11", "12", "13", "14", "15", "16", "17", "18"]
+  },
+  "ST7920": {
+    "kind": "display",
+    "package": "12864 module",
+    "width": 14,
+    "pins": {
+      "1": ["VSS", "", "power"],
+      "2": ["VDD", "", "power"],
+      "3": ["V0", "contrast", "power"],
+      "4": ["RS", "CS", "io"],
+      "5": ["RW", "SID", "io"],
+      "6": ["E", "SCLK", "io"],
+      "7": ["DB0", "", "io"],
+      "8": ["DB1", "", "io"],
+      "9": ["DB2", "", "io"],
+      "10": ["DB3", "", "io"],
+      "11": ["DB4", "", "io"],
+      "12": ["DB5", "", "io"],
+      "13": ["DB6", "", "io"],
+      "14": ["DB7", "", "io"],
+      "15": ["PSB", "", "io"],
+      "16": ["NC", "", "nc"],
+      "17": ["RST", "", "io"],
+      "18": ["VOUT", "", "power"],
+      "19": ["BLA", "", "power"],
+      "20": ["BLK", "", "power"]
+    },
+    "left": ["4", "5", "6", null, "7", "8", "9", "10", "11", "12", "13", "14", null, "15", "17", "16"],
+    "right": ["2", "1", "3", "18", null, "19", "20"]
+  },
+  "74C922": {
+    "kind": "input",
+    "package": "DIP-18",
+    "width": 10,
+    "pins": {
+      "1": ["Y1", "row 1", "io"],
+      "2": ["Y2", "row 2", "io"],
+      "3": ["Y3", "row 3", "io"],
+      "4": ["Y4", "row 4", "io"],
+      "5": ["OSC", "", "io"],
+      "6": ["KBM", "", "io"],
+      "7": ["X4", "col 4", "io"],
+      "8": ["X3", "col 3", "io"],
+      "9": ["GND", "", "power"],
+      "10": ["X2", "col 2", "io"],
+      "11": ["X1", "col 1", "io"],
+      "12": ["DA", "", "io"],
+      "13": ["OE", "", "io"],
+      "14": ["D3", "D", "io"],
+      "15": ["D2", "C", "io"],
+      "16": ["D1", "B", "io"],
+      "17": ["D0", "A", "io"],
+      "18": ["VCC", "", "power"]
+    },
+    "left": ["17", "16", "15", "14", null, "12", "13", null, "18", "9"],
+    "right": ["11", "10", "8", "7", null, "1", "2", "3", "4", null, "5", "6"]
+  },
+  "25LC1024": {
+    "kind": "memory",
+    "package": "DIP-8",
+    "width": 12,
+    "pins": {
+      "1": ["CS", "", "io"],
+      "2": ["SO", "", "io"],
+      "3": ["WP", "", "io"],
+      "4": ["VSS", "", "power"],
+      "5": ["SI", "", "io"],
+      "6": ["SCK", "", "io"],
+      "7": ["HOLD", "", "io"],
+      "8": ["VCC", "", "power"]
+    },
+    "left": ["1", "6", "5", "2"],
+    "right": ["3", "7", null, "8", "4"]
+  },
+  "23LC1024": {
+    "kind": "memory",
+    "package": "DIP-8",
+    "width": 12,
+    "pins": {
+      "1": ["CS", "", "io"],
+      "2": ["SO", "SIO1", "io"],
+      "3": ["SIO2", "", "io"],
+      "4": ["VSS", "", "power"],
+      "5": ["SI", "SIO0", "io"],
+      "6": ["SCK", "", "io"],
+      "7": ["HOLD", "SIO3", "io"],
+      "8": ["VCC", "", "power"]
+    },
+    "left": ["1", "6", "5", "2"],
+    "right": ["3", "7", null, "8", "4"]
+  },
+  "UART": {
+    "kind": "other",
+    "package": "USB-serial",
+    "width": 10,
+    "pins": {
+      "1": ["GND", "", "power"],
+      "2": ["VCC", "", "power"],
+      "3": ["TX", "TXD", "io"],
+      "4": ["RX", "RXD", "io"]
+    },
+    "left": [],
+    "right": ["3", "4", null, "2", "1"]
+  }
+}

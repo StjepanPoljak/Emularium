@@ -26,6 +26,11 @@ LCD (`docs/TINYSTORIES.md`). New parts: the 25LC1024 SPI EEPROM, checked
 against its datasheet and with sigrok. `tools/schematic.py` draws board
 files.
 
+Update 2026-11-15: `tools/schematic.py` draws boards as schematics in the
+browser instead of Graphviz block diagrams: real pinouts, wires routed on a
+grid like PCB tracks, parts that can be dragged with the wires following;
+layouts are kept in `NAME.layout.toml` (`docs/BOARDS.md`).
+
 Update 2026-11-13: boards are TOML files loaded at run time
 (`boards/*/NAME.toml`, default `boards/tetris/tetris.toml`; format in
 `docs/BOARDS.md`). Displays are served over VNC, one port each, instead of

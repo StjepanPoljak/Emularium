@@ -1,150 +1,240 @@
 #!/usr/bin/env python3
-"""Draws a board file (boards/*/NAME.toml) as a block diagram, with Graphviz.
+"""Draws a board file (boards/*/NAME.toml) as a schematic you can edit.
 
-Parts are boxes (name, model, parameters). Connections are drawn per group
-of parts, not per pin:
-- the nets between the same two parts become one line, labelled with each
-  net and the pins it joins, e.g. "LCD_DB0..7: RB0..7 - DB0..7";
-- nets that join three or more parts meet at a small hub; nets with the
-  same set of parts share a hub (an SPI bus is one hub), and each line from
-  the hub lists that part's pins;
-- power rails (GND*, VSS, 0V, +*, VCC, VDD) are drawn as rail hubs.
+Parts are drawn with their package's real pins and numbers
+(tools/schematic/symbols.json); wires are routed on a grid like PCB tracks,
+horizontal and vertical only, never two nets on one track, with a dot where
+a net branches. Power nets (GND*, VSS, 0V, +*, VCC, VDD) get power symbols
+instead of wires.
 
-Usage: tools/schematic.py BOARD.toml [-o OUT.svg|.png|.pdf|.dot]
-       (default: BOARD.svg next to the board file; needs Graphviz's `dot`
-       for anything but .dot)
+The editor runs in the browser: drag parts and the wires follow, R rotates,
+M mirrors, the wheel zooms, dragging the background pans. Save writes the
+parts' places to NAME.layout.toml and the drawing to NAME.svg, both next to
+the board file.
+
+Usage: tools/schematic.py BOARD.toml            open the editor
+       tools/schematic.py BOARD.toml --svg      just write NAME.svg (needs
+                                                Firefox or Chromium, headless)
+       options: --port N (default: a free one), --no-browser,
+                -o OUT.svg|.pdf|.png (.pdf and .png need rsvg-convert)
 """
 
 import argparse
-import html
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import tomllib
-from collections import defaultdict
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
-RAIL = re.compile(r"^(GND.*|VSS|0V|\+.*|VCC|VDD)$")
-PALETTE = {"mcu": "#dbeafe", "display": "#dcfce7", "memory": "#fef3c7", "other": "#f3f4f6"}
-
-
-def kind(model):
-    m = model.upper()
-    if m.startswith("PIC"):
-        return "mcu"
-    if m.startswith("ST7920"):
-        return "display"
-    if re.match(r"^2[35]", m):
-        return "memory"
-    return "other"
+HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schematic")
+GND = re.compile(r"^(GND.*|VSS|0V)$")
+VCC = re.compile(r"^(\+.*|VCC|VDD)$")
+RANGE = re.compile(r"^(.*?)(\d+)\.\.(\d+)$")
+STATIC = {"/": ("editor.html", "text/html"), "/editor.js": ("editor.js", "text/javascript"),
+          "/router.js": ("router.js", "text/javascript"), "/editor.css": ("editor.css", "text/css")}
 
 
-def split_pin(entry):
-    part, _, pin = entry.partition(".")
-    return part, pin
+def expand(text):
+    """'RC0..7' -> ['RC0', ..., 'RC7']; '7..0' counts down; else [text]."""
+    m = RANGE.match(text)
+    if not m:
+        return [text]
+    a, b = int(m[2]), int(m[3])
+    step = 1 if b >= a else -1
+    return [f"{m[1]}{i}" for i in range(a, b + step, step)]
 
 
-def load(path):
+def load_board(path):
     with open(path, "rb") as f:
         board = tomllib.load(f)
-    parts = board.get("parts", {})
-    nets = []                                   # (name, {part: [pins]})
-    for name, pins in board.get("nets", {}).items():
-        by_part = defaultdict(list)
-        for entry in pins:
-            part, pin = split_pin(entry)
-            by_part[part].append(pin)
-        nets.append((name, dict(by_part)))
-    return board.get("name", os.path.basename(path)), parts, nets
+    parts = {}
+    for ref, spec in board.get("parts", {}).items():
+        params = {k: v for k, v in spec.items() if k != "model"}
+        parts[ref] = {"model": spec.get("model", "?"),
+                      "params": {k: v if isinstance(v, str) else json.dumps(v) for k, v in params.items()}}
+    nets = []
+    for name, entries in board.get("nets", {}).items():
+        names = expand(name)
+        columns = []
+        for entry in entries:
+            ref, _, pin = entry.partition(".")
+            pins = expand(pin)
+            if len(names) > 1 and len(pins) == 1:
+                pins = pins * len(names)    # one pin on every net of the range
+            if len(pins) != len(names):
+                sys.exit(f"{path}: net {name}: {entry} doesn't match the range")
+            columns.append([(ref, p) for p in pins])
+        for i, n in enumerate(names):
+            power = "gnd" if GND.match(n) else "vcc" if VCC.match(n) else None
+            nets.append({"name": n, "bus": name if len(names) > 1 else None, "power": power,
+                         "pins": [list(col[i]) for col in columns]})
+    return {"name": board.get("name", os.path.basename(path)), "parts": parts, "nets": nets}
 
 
-def part_label(name, spec):
-    model = spec.get("model", "?")
-    rows = [f'<tr><td><b>{html.escape(name)}</b></td></tr>',
-            f'<tr><td>{html.escape(model)}</td></tr>']
-    params = []
-    for k, v in spec.items():
-        if k == "model":
+def layout_path(board_path):
+    return os.path.splitext(board_path)[0] + ".layout.toml"
+
+
+def load_layout(board_path):
+    path = layout_path(board_path)
+    if not os.path.exists(path):
+        return {}
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
+def write_layout(board_path, layout):
+    lines = ["# Where tools/schematic.py draws each part (grid cells of 10 px);",
+             "# drag the parts in its editor and Save, or edit by hand.", ""]
+    for ref, p in layout.items():
+        if not re.match(r"^[A-Za-z0-9_]+$", ref):
             continue
-        if isinstance(v, str) and "/" in v:
-            v = os.path.basename(v)                 # a file: its name is enough
-        if isinstance(v, dict):
-            v = " ".join(f"{kk}:{vv}" for kk, vv in v.items())
-        params.append(f"{k} = {v}")
-    for p in params:
-        if len(p) > 44:
-            p = p[:41] + "..."
-        rows.append(f'<tr><td><font point-size="9">{html.escape(str(p))}</font></td></tr>')
-    color = PALETTE[kind(model)]
-    return (f'<<table border="1" cellborder="0" cellspacing="1" cellpadding="3" '
-            f'bgcolor="{color}">{"".join(rows)}</table>>')
+        lines.append(f"{ref} = {{ x = {int(p['x'])}, y = {int(p['y'])}, rotate = {int(p.get('rotate', 0)) % 360}, "
+                     f"mirror = {'true' if p.get('mirror') else 'false'} }}")
+    with open(layout_path(board_path), "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
-def order(parts, names):
-    """MCUs first, then the rest by name: lines are drawn from the MCU out."""
-    return sorted(names, key=lambda n: (kind(parts.get(n, {}).get("model", "")) != "mcu", n))
+def page_data(board_path):
+    with open(os.path.join(HERE, "symbols.json")) as f:
+        symbols = json.load(f)
+    symbols.pop("_doc", None)
+    data = load_board(board_path)
+    data["symbols"] = symbols
+    data["layout"] = load_layout(board_path)
+    data["file"] = os.path.basename(board_path)
+    return data
 
 
-def dot(title, parts, nets):
-    out = ["graph board {",
-           f'  label=<<b>{html.escape(title)}</b>>; labelloc=t; fontname="Helvetica"; fontsize=18;',
-           '  graph [rankdir=LR, splines=true, overlap=false, nodesep=0.6, ranksep=1.4, pad=0.3];',
-           '  node [shape=plaintext, fontname="Helvetica", fontsize=11];',
-           '  edge [fontname="Helvetica", fontsize=9, color="#475569"];']
-    for name, spec in parts.items():
-        out.append(f'  "{name}" [label={part_label(name, spec)}];')
+def write_drawing(path, svg):
+    """Writes the SVG, or converts it for .pdf and .png (with rsvg-convert)."""
+    fmt = os.path.splitext(path)[1].lower().lstrip(".")
+    if fmt in ("pdf", "png"):
+        if not shutil.which("rsvg-convert"):
+            raise OSError(f"writing .{fmt} needs rsvg-convert (librsvg); use .svg")
+        subprocess.run(["rsvg-convert", "-f", fmt, "-z", "2" if fmt == "png" else "1", "-o", path],
+                       input=svg.encode(), check=True)
+    else:
+        with open(path, "w") as f:
+            f.write(svg)
 
-    pairs = defaultdict(list)                   # (a, b) -> label lines
-    hubs = defaultdict(list)                    # (rail?, parts) -> nets
-    for name, by_part in nets:
-        rail = bool(RAIL.match(name))
-        if len(by_part) == 2 and not rail:
-            a, b = order(parts, by_part)
-            pa, pb = by_part[a], by_part[b]
-            pairs[(a, b)].append(f"{name}: {', '.join(pa)} - {', '.join(pb)}")
+
+def make_handler(board_path, svg_out, on_save):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def send(self, code, body, ctype):
+            body = body.encode() if isinstance(body, str) else body
+            self.send_response(code)
+            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            path = urlparse(self.path).path
+            if path in STATIC:
+                name, ctype = STATIC[path]
+                with open(os.path.join(HERE, name), "rb") as f:
+                    body = f.read()
+                if name == "editor.html":
+                    try:
+                        data = json.dumps(page_data(board_path)).replace("</", "<\\/")
+                    except SystemExit as e:
+                        return self.send(500, str(e), "text/plain")
+                    body = body.replace(b"/*BOARD*/null", data.encode())
+                self.send(200, body, ctype)
+            else:
+                self.send(404, "not found", "text/plain")
+
+        def do_POST(self):
+            if urlparse(self.path).path != "/api/save":
+                return self.send(404, "not found", "text/plain")
+            req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            saved = []
+            if req.get("layout"):
+                write_layout(board_path, req["layout"])
+                saved.append(layout_path(board_path))
+            if req.get("svg"):
+                try:
+                    write_drawing(svg_out, req["svg"])
+                    saved.append(svg_out)
+                except (OSError, subprocess.CalledProcessError) as e:
+                    print("couldn't write", svg_out + ":", e, file=sys.stderr)
+            for p in saved:
+                print("wrote", os.path.relpath(p))
+            self.send(200, json.dumps({"saved": [os.path.basename(p) for p in saved]}), "application/json")
+            on_save(req)
+    return Handler
+
+
+def headless_browser():
+    for name in ("firefox", "chromium", "chromium-browser", "google-chrome"):
+        if shutil.which(name):
+            return name
+    return None
+
+
+def export_svg(server, url, browser):
+    """Loads the page in a headless browser; the page POSTs its SVG and the
+    server stops."""
+    # A snap browser can't see /tmp or hidden directories; ~/snap/NAME/common it can.
+    snap_dir = os.path.expanduser(f"~/snap/{browser}/common")
+    tmp = tempfile.mkdtemp(prefix="schematic-", dir=snap_dir if os.path.isdir(snap_dir) else None)
+    try:
+        if browser == "firefox":
+            cmd = [browser, "--headless", "--no-remote", "--profile", tmp, "--window-size", "1200,900",
+                   "--screenshot", os.path.join(tmp, "shot.png"), url]
         else:
-            hubs[(rail, tuple(sorted(by_part)))].append((name, by_part))
-
-    for (a, b), lines in pairs.items():
-        label = "<br/>".join(html.escape(line) for line in lines)
-        out.append(f'  "{a}" -- "{b}" [label=<{label}>, penwidth={1 + min(len(lines), 4) * 0.5}];')
-
-    for i, ((rail, members), group) in enumerate(hubs.items()):
-        hub = f"hub{i}"
-        names = ", ".join(n for n, _ in group)
-        if rail:
-            out.append(f'  {hub} [shape=box, style="rounded,filled", fillcolor="#fee2e2", '
-                       f'fontsize=10, label="{html.escape(names)}"];')
-        else:
-            out.append(f'  {hub} [shape=ellipse, style=filled, fillcolor="#e0e7ff", '
-                       f'fontsize=10, label="{html.escape(names)}"];')
-        for part in order(parts, members):
-            pins = ", ".join(", ".join(by_part[part]) for _, by_part in group)
-            style = ', style=dashed, color="#b91c1c"' if rail else ""
-            ends = (f'"{part}" -- {hub}' if kind(parts.get(part, {}).get("model", "")) == "mcu"
-                    else f'{hub} -- "{part}"')
-            out.append(f'  {ends} [label="{html.escape(pins)}"{style}];')
-    out.append("}")
-    return "\n".join(out) + "\n"
+            cmd = [browser, "--headless", "--disable-gpu", f"--user-data-dir={tmp}", "--dump-dom", url]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        server.shutdown()
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("board")
-    ap.add_argument("-o", "--output")
+    ap.add_argument("-o", "--output", help="drawing to write: .svg, .pdf or .png (default: NAME.svg next to the board)")
+    ap.add_argument("--svg", action="store_true", help="write the SVG without opening the editor")
+    ap.add_argument("--port", type=int, default=0)
+    ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
-    title, parts, nets = load(a.board)
-    src = dot(title, parts, nets)
-    out = a.output or os.path.splitext(a.board)[0] + ".svg"
-    fmt = os.path.splitext(out)[1].lstrip(".") or "svg"
-    if fmt == "dot":
-        open(out, "w").write(src)
-    else:
-        if not shutil.which("dot"):
-            sys.exit("Graphviz's dot isn't installed; use -o FILE.dot")
-        subprocess.run(["dot", f"-T{fmt}", "-o", out], input=src.encode(), check=True)
-    print(out)
+    board = os.path.abspath(a.board)
+    load_board(board)                                   # report mistakes now
+    svg_out = a.output or os.path.splitext(board)[0] + ".svg"
+    exported = threading.Event()
+
+    def on_save(req):
+        if req.get("export"):
+            exported.set()
+
+    server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(board, svg_out, on_save))
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    if a.svg:
+        browser = headless_browser()
+        if not browser:
+            sys.exit("--svg needs Firefox or Chromium; open the editor and press Save instead")
+        threading.Thread(target=export_svg, args=(server, url + "?export=1", browser), daemon=True).start()
+        server.serve_forever()
+        sys.exit(0 if exported.is_set() else "the browser didn't send the drawing")
+    print(f"Schematic editor for {os.path.relpath(board)}: {url}  (Ctrl+C to stop)")
+    if not a.no_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

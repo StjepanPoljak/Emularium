@@ -119,8 +119,9 @@ drawing only. Loading a `.kicad_sch` file needs `kicad-cli`; an exported
 `.net` file doesn't.
 
 [docs/BOARDS.md](docs/BOARDS.md) describes the whole format and every model's
-parameters and pins. `tools/schematic.py BOARD.toml` draws a board as a
-block diagram (needs Graphviz).
+parameters and pins. `tools/schematic.py BOARD.toml` opens a board as a
+schematic in the browser: parts with their real pins, wires routed like PCB
+tracks, parts you can drag around.
 
 ### Firmware
 
