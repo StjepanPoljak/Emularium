@@ -23,7 +23,8 @@
 
   // ---- model ------------------------------------------------------------
 
-  const parts = BOARD.parts, nets = BOARD.nets;
+  const parts = BOARD.parts;
+  let nets = BOARD.nets;
   const refs = Object.keys(parts);
   const symbols = {};
   for (const ref of refs) {
@@ -35,21 +36,17 @@
   }
   const kindOf = ref => symbols[ref].kind;
 
-  // Pins named in nets that the symbol doesn't have: say so instead of
-  // quietly dropping them.
-  const problems = [];
-  for (const n of nets) for (const [r, p] of n.pins) {
-    if (!parts[r]) problems.push(`${n.name}: no part ${r}`);
-    else if (!Object.values(symbols[r].pins).some(v => v[0] === p)) problems.push(`${n.name}: ${r} has no pin ${p}`);
-  }
+  // As tools/schematic.py and the emulator tell power nets.
+  const powerOf = name => /^(GND.*|VSS|0V)$/.test(name) ? "gnd" : /^(\+.*|VCC|VDD)$/.test(name) ? "vcc" : null;
 
   // Colours: one per family of nets (SPI_*, LCD_*, KEY_*, ...), picked by
   // the family's name so that it's the same on every board; the next free
-  // one if two families of a board would get the same.
+  // one if two families of a board would get the same. A family keeps its
+  // colour when nets are edited.
   const family = n => (n.bus || n.name).split("_")[0].replace(/\d+(\.\.\d+)?$/, "") || n.name;
   const hash = t => [...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   const famColor = new Map(), taken = new Set();
-  const netColor = nets.map(n => {
+  function colorOf(n) {
     if (n.power === "vcc") return C.vcc;
     if (n.power === "gnd") return C.gnd;
     const f = family(n);
@@ -60,9 +57,25 @@
       famColor.set(f, C.nets[i]);
     }
     return famColor.get(f);
-  });
-  const pinNet = new Map();
-  nets.forEach((n, i) => n.pins.forEach(([r, p]) => pinNet.set(r + "." + p, i)));
+  }
+
+  // What follows from the nets; again after every edit of them.
+  let netColor, pinNet, problems;
+  function netsChanged() {
+    netColor = nets.map(colorOf);
+    pinNet = new Map();
+    nets.forEach((n, i) => n.pins.forEach(([r, p]) => pinNet.set(r + "." + p, i)));
+    // Pins named in nets that the symbol doesn't have: say so instead of
+    // quietly dropping them.
+    problems = [];
+    for (const n of nets) for (const [r, p] of n.pins) {
+      if (!parts[r]) problems.push(`${n.name}: no part ${r}`);
+      else if (!Object.values(symbols[r].pins).some(v => v[0] === p)) problems.push(`${n.name}: ${r} has no pin ${p}`);
+    }
+  }
+  netsChanged();
+  const netsText = () => JSON.stringify(nets.map(n => [n.name, n.pins]));
+  let savedNets = netsText();
 
   let layout = {};
   for (const ref of refs) {
@@ -197,17 +210,29 @@
       el("text", { x: px(r.x + r.w / 2), y: ty + i * lh, "text-anchor": "middle", "font-size": size,
                    "font-weight": weight, fill, "font-family": font }, grp, t);
     });
-    for (const p of g.pins) drawPin(g, p, grp);
+    for (const p of g.pins) drawPin(g, p, grp, interactive);
     return grp;
   }
 
-  function drawPin(g, p, grp) {
+  function drawPin(g, p, grp, interactive) {
     const key = g.ref + "." + p.name;
     const n = pinNet.get(key);
     const used = n !== undefined;
     const color = used ? netColor[n] : C.unused;
-    const pg = el("g", { class: used ? `pin net n${n}` : "pin", "data-net": used ? n : null }, grp);
-    if (used) el("title", {}, pg, `${g.ref}.${p.name} (pin ${p.num}) — ${nets[n].name}`);
+    const wireable = p.type === "io";
+    const pg = el("g", { class: (used ? `pin net n${n}` : "pin") + (wireable ? " io" : ""),
+                         "data-net": used ? n : null, "data-pin": key }, grp);
+    el("title", {}, pg, `${key} (pin ${p.num})` + (used ? ` — ${nets[n].name}` : "") +
+       (interactive && wireable ? "\nDrag from its end to connect; click, then Delete, to disconnect" : "") +
+       (interactive && p.type === "hw" ? "\nNot modelled by the emulator" : ""));
+    if (interactive) {
+      // Something to grab: the stub and a little beyond its end.
+      const x0 = Math.min(p.base.x, p.tip.x), x1 = Math.max(p.base.x, p.tip.x);
+      const y0 = Math.min(p.base.y, p.tip.y), y1 = Math.max(p.base.y, p.tip.y);
+      el("rect", { x: px(x0) - 5, y: px(y0) - 5, width: px(x1 - x0) + 10, height: px(y1 - y0) + 10,
+                   fill: "transparent", class: "grab" }, pg);
+      if (key === pickedPin) el("circle", { cx: px(p.tip.x), cy: px(p.tip.y), r: 5.5, class: "ring" }, pg);
+    }
     el("line", { x1: px(p.base.x), y1: px(p.base.y), x2: px(p.tip.x), y2: px(p.tip.y),
                  stroke: used ? color : C.unused, "stroke-width": used ? 2.2 : 1.4, "stroke-linecap": "round" }, pg);
     if (used) el("circle", { cx: px(p.tip.x), cy: px(p.tip.y), r: 1.6, fill: color }, pg);
@@ -327,7 +352,7 @@
   const svg = document.getElementById("canvas");
   const world = document.getElementById("world");
   const status = document.getElementById("status");
-  let view = null, selected = null, dirty = false, showLabels = true, result = null, gsCache = null;
+  let view = null, selected = null, pickedPin = null, dirty = false, showLabels = true, result = null, gsCache = null;
   const undo = [];
 
   // fast: one quick pass while a part is being dragged.
@@ -353,9 +378,19 @@
       status.title = problems.join("\n");
       if (params.has("debug")) status.textContent += ` · ` +
         result.order.map(n => `${n}=${result.netCosts[n]}`).join(" ") + " | " + result.totals.join(" | ");
+      if (pickedPin) {
+        const n = pinNet.get(pickedPin);
+        status.textContent = `${pickedPin}: ` + (n === undefined ? "not connected · drag from its end to a pin or a wire"
+          : `on ${nets[n].name} · Delete disconnects it, or drag from its end to connect it elsewhere`);
+        status.classList.remove("warn");
+      }
     }
     void routed;
     renderNetList();
+    // The new drawing lit as the old one was.
+    const lit = hl;
+    hl = undefined;
+    highlight(lit);
   }
 
   function bbox(gs, res) {
@@ -426,11 +461,15 @@
   // ---- net list -----------------------------------------------------------
 
   const netList = document.getElementById("nets");
+  let listed = null;
   function renderNetList() {
-    if (!netList || netList.childElementCount) return;
+    if (!netList || listed === netsText()) return;
+    listed = netsText();
+    netList.replaceChildren();
     nets.forEach((n, i) => {
       const li = document.createElement("li");
       li.dataset.net = i;
+      li.title = "Double-click to rename";
       const sw = document.createElement("span");
       sw.className = "sw" + (n.power ? " pw" : "");
       sw.style.background = netColor[i];
@@ -440,7 +479,11 @@
       const pins = document.createElement("span");
       pins.className = "pp";
       pins.textContent = n.pins.map(p => p.join(".")).join(" ");
-      li.append(sw, name, pins);
+      const del = document.createElement("button");
+      del.className = "del";
+      del.title = "Delete this net";
+      del.textContent = "×";
+      li.append(sw, name, pins, del);
       netList.append(li);
     });
   }
@@ -462,8 +505,182 @@
   }
   const netAt = e => { const t = e.target.closest && e.target.closest("[data-net]"); return t ? +t.dataset.net : null; };
 
-  function snapshot() { undo.push(JSON.stringify(layout)); if (undo.length > 200) undo.shift(); }
+  function snapshot() { undo.push(JSON.stringify({ layout, nets })); if (undo.length > 200) undo.shift(); }
   function setDirty(d) { dirty = d; document.title = (d ? "• " : "") + BOARD.name + " — schematic"; }
+
+  // ---- editing connections ------------------------------------------------
+
+  const tipOf = key => gsCache.flatMap(g => g.pins.map(p => [g.ref + "." + p.name, p])).find(([k]) => k === key)?.[1];
+  const split = key => [key.slice(0, key.indexOf(".")), key.slice(key.indexOf(".") + 1)];
+  const NAME = /^[A-Za-z0-9_+-]+$/;
+
+  // After an edit of nets: lone signal nets go (they connect nothing), the
+  // drawing and the list follow.
+  function editedNets(message) {
+    nets = nets.filter(n => n.pins.length > (n.power ? 0 : 1));
+    pinned = null;
+    hl = null;
+    netsChanged();
+    setDirty(true);
+    draw();
+    if (message) toast(message + " · Ctrl+Z undoes");
+  }
+
+  // Joins pin key to net n.
+  function joinNet(key, n) {
+    snapshot();
+    nets[n] = { ...nets[n], pins: [...nets[n].pins, split(key)] };
+    editedNets(`${key} → ${nets[n].name}`);
+  }
+
+  // One net out of nets a and b, keeping the power net's name, else the
+  // bigger one's (a's on a tie).
+  function mergeNets(a, b) {
+    const A = nets[a], B = nets[b];
+    if (A.power && B.power && A.name !== B.name) {
+      toast(`That would short ${A.name} to ${B.name}`, true);
+      return;
+    }
+    const [keep, gone] = B.power && !A.power || (!A.power && B.pins.length > A.pins.length) ? [b, a] : [a, b];
+    snapshot();
+    nets[keep] = { ...nets[keep], pins: [...nets[keep].pins, ...nets[gone].pins] };
+    const goneName = nets[gone].name;
+    nets.splice(gone, 1);
+    editedNets(`Joined ${goneName} into ${nets[keep > gone ? keep - 1 : keep].name}`);
+  }
+
+  // Connects pin key to pin other (both "REF.PIN").
+  async function connectPins(key, other, at) {
+    const a = pinNet.get(key), b = pinNet.get(other);
+    if (a !== undefined && a === b) { toast(`Already both on ${nets[a].name}`); return; }
+    if (a !== undefined && b !== undefined) return mergeNets(b, a);
+    if (a !== undefined) return joinNet(other, a);
+    if (b !== undefined) return joinNet(key, b);
+    // A new net; the microcontroller's pin first, where the router starts.
+    const pins = [split(key), split(other)].sort((p, q) => (kindOf(q[0]) === "mcu") - (kindOf(p[0]) === "mcu"));
+    const name = await ask(at, { title: `Name the net from ${key} to ${other}`, value: suggestName(pins) });
+    if (!name) return;
+    const n = nets.findIndex(x => x.name === name);
+    snapshot();
+    if (n >= 0) nets[n] = { ...nets[n], pins: [...nets[n].pins, ...pins] };
+    else nets.push({ name, bus: null, power: powerOf(name), pins });
+    editedNets(n >= 0 ? `${key} and ${other} → ${name}` : `New net ${name}`);
+  }
+
+  // Connects pin key to a net named by hand: an existing one, or a power
+  // rail (a signal net needs a second pin).
+  async function connectByName(key, at) {
+    const name = await ask(at, { title: `Connect ${key} to`, value: "", placeholder: "GND, +5V or a net's name" });
+    if (!name) return;
+    const n = nets.findIndex(x => x.name === name);
+    const a = pinNet.get(key);
+    if (n >= 0 && n === a) return;
+    if (a !== undefined) { toast(`${key} is on ${nets[a].name}; disconnect it first (click it, Delete)`, true); return; }
+    if (n >= 0) return joinNet(key, n);
+    if (!powerOf(name)) { toast(`No net ${name}; to make one, drag to the pin it should go to`, true); return; }
+    snapshot();
+    nets.push({ name, bus: null, power: powerOf(name), pins: [split(key)] });
+    editedNets(`${key} → ${name}`);
+  }
+
+  // KiCad-like: the other part's pin, e.g. U5_HOLD.
+  function suggestName(pins) {
+    const [r, p] = pins[pins.length - 1];
+    let name = `${r}_${p}`.replace(/[^A-Za-z0-9_+-]/g, "_"), k = 2;
+    while (nets.some(n => n.name === name)) name = `${r}_${p}_${k++}`;
+    return name;
+  }
+
+  function disconnectPin(key) {
+    const n = pinNet.get(key);
+    if (n === undefined) { toast(`${key} isn't connected`); return; }
+    snapshot();
+    const net = nets[n];
+    nets[n] = { ...net, pins: net.pins.filter(([r, p]) => r + "." + p !== key) };
+    const left = nets[n].pins.length;
+    editedNets(left > (net.power ? 0 : 1) ? `${key} off ${net.name}` : `${key} off ${net.name}; nothing else on it, so it's gone`);
+  }
+
+  function deleteNet(n) {
+    snapshot();
+    const name = nets[n].name;
+    nets.splice(n, 1);
+    editedNets(`Deleted ${name}`);
+  }
+
+  async function renameNet(n, at) {
+    const old = nets[n].name;
+    const name = await ask(at, { title: `Rename ${old}`, value: old });
+    if (!name || name === old) return;
+    const m = nets.findIndex(x => x.name === name);
+    if (m >= 0) return mergeNets(m, n);
+    snapshot();
+    nets[n] = { ...nets[n], name, bus: null, power: powerOf(name) };
+    editedNets(`${old} is now ${name}`);
+  }
+
+  // A small box at client point at that asks for a net's name; resolves
+  // to the name, or null when cancelled.
+  function ask(at, { title, value, placeholder }) {
+    const box = document.getElementById("ask");
+    const input = box.querySelector("input");
+    box.querySelector("label").textContent = title;
+    const list = document.getElementById("netnames");
+    list.replaceChildren(...[...new Set([...nets.map(n => n.name), "GND", "+5V"])].map(v => {
+      const o = document.createElement("option"); o.value = v; return o;
+    }));
+    input.value = value;
+    input.placeholder = placeholder || "";
+    box.hidden = false;
+    const r = box.getBoundingClientRect();
+    box.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, at.x + 12)) + "px";
+    box.style.top = Math.max(8, Math.min(innerHeight - r.height - 8, at.y + 12)) + "px";
+    input.focus();
+    input.select();
+    return new Promise(resolve => {
+      const done = v => {
+        box.hidden = true;
+        box.onsubmit = input.onkeydown = input.onblur = null;
+        resolve(v);
+      };
+      box.onsubmit = e => {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (!NAME.test(v) || v.includes("..")) { toast("A net's name is letters, digits, _, + and -", true); return; }
+        done(v);
+      };
+      input.onkeydown = e => { if (e.key === "Escape") { e.stopPropagation(); done(null); } };
+      input.onblur = () => setTimeout(() => { if (!box.hidden) done(null); }, 150);
+    });
+  }
+
+  // The rubber band while a connection is dragged out of a pin: out of the
+  // pin, then across and down to the pointer.
+  const overlay = document.getElementById("overlay");
+  function rubber(from, to, target) {
+    overlay.replaceChildren();
+    const t = tipOf(from);
+    if (!t) return;
+    const [ox, oy] = SCH.OUT[t.side];
+    const x0 = px(t.tip.x), y0 = px(t.tip.y), x1 = x0 + ox * 10, y1 = y0 + oy * 10;
+    const d = ox ? `M${x0} ${y0}H${x1}V${to.y}H${to.x}` : `M${x0} ${y0}V${y1}H${to.x}V${to.y}`;
+    el("path", { d, class: "rubber" + (target ? " hot" : "") }, overlay);
+    el("circle", { cx: to.x, cy: to.y, r: target ? 5 : 3, class: "rubber-end" + (target ? " hot" : "") }, overlay);
+  }
+
+  // What's under the pointer for a connection: a wireable pin, a net's
+  // wire, or nothing.
+  function dropTarget(e) {
+    for (const t of document.elementsFromPoint(e.clientX, e.clientY)) {
+      if (!svg.contains(t) || overlay.contains(t)) continue;
+      const pin = t.closest(".pin");
+      if (pin) return pin.classList.contains("io") ? { pin: pin.dataset.pin } : { bad: pin.dataset.pin };
+      const net = t.closest(".wires [data-net]");
+      if (net) return { net: +net.dataset.net };
+      if (t.closest(".part")) return null;
+    }
+    return null;
+  }
 
   function overlaps(ref, l) {
     const g = SCH.geometry(ref, { ...parts[ref], ...l }, symbols[ref]);
@@ -486,7 +703,18 @@
   svg.addEventListener("pointerdown", e => {
     const p = toWorld(e);
     const partEl = e.target.closest(".part");
-    if (partEl && e.button === 0) {
+    const pinEl = e.target.closest(".pin");
+    if (pinEl && e.button === 0) {
+      // A pin: click picks it, dragging out of it makes a connection.
+      if (!pinEl.classList.contains("io")) {
+        toast(`${pinEl.dataset.pin} isn't modelled by the emulator, so it can't be wired`);
+        return;
+      }
+      selected = null;
+      drag = { wire: pinEl.dataset.pin, x: e.clientX, y: e.clientY, moved: false };
+      svg.setPointerCapture(e.pointerId);
+    } else if (partEl && e.button === 0) {
+      pickedPin = null;
       const ref = partEl.dataset.ref;
       selected = ref;
       drag = { ref, dx: p.x / G - layout[ref].x, dy: p.y / G - layout[ref].y, moved: false };
@@ -494,8 +722,10 @@
       svg.setPointerCapture(e.pointerId);
       draw();
     } else {
-      if (selected) { selected = null; draw(); }
-      drag = { pan: true, x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+      // The net under the pointer now: a redraw replaces the element.
+      const net = netAt(e);
+      if (selected || pickedPin) { selected = null; pickedPin = null; draw(); }
+      drag = { pan: true, net, x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
       svg.setPointerCapture(e.pointerId);
       svg.classList.add("panning");
     }
@@ -503,6 +733,15 @@
   svg.addEventListener("pointermove", e => {
     if (!drag) {
       highlight(pinned ?? netAt(e));
+      return;
+    }
+    if (drag.wire) {
+      if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+      drag.moved = true;
+      const target = dropTarget(e);
+      const ok = target && (target.pin && target.pin !== drag.wire || target.net !== undefined);
+      highlight(target && target.net !== undefined ? target.net : target && target.pin ? pinNet.get(target.pin) ?? null : null);
+      rubber(drag.wire, toWorld(e), ok);
       return;
     }
     if (drag.pan) {
@@ -525,7 +764,32 @@
     setDirty(true);
     schedule();
   });
-  const endDrag = () => {
+  const endDrag = e => {
+    if (drag && drag.wire) {
+      const from = drag.wire, moved = drag.moved;
+      drag = null;
+      overlay.replaceChildren();
+      if (!moved) { pickedPin = pickedPin === from ? null : from; pinned = null; draw(); return; }
+      if (e.type !== "pointerup") return;
+      const at = { x: e.clientX, y: e.clientY }, target = dropTarget(e);
+      if (!target) connectByName(from, at);
+      else if (target.bad) toast(`${target.bad} isn't modelled by the emulator, so it can't be wired`, true);
+      else if (target.pin === from) return;
+      else if (target.pin) connectPins(from, target.pin, at);
+      else {
+        const a = pinNet.get(from);
+        if (a === target.net) toast(`${from} is already on ${nets[a].name}`);
+        else if (a !== undefined) mergeNets(target.net, a);
+        else joinNet(from, target.net);
+      }
+      return;
+    }
+    if (drag && drag.pan && e.type === "pointerup" && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) {
+      // A click on a wire keeps its net lit (and picked for Delete); on
+      // the paper, lets it go.
+      pinned = drag.net;
+      highlight(pinned);
+    }
     if (drag && !drag.pan && !drag.moved) undo.pop();
     if (drag && !drag.pan && drag.moved) { drag = null; draw(); }
     drag = null;
@@ -534,9 +798,9 @@
   svg.addEventListener("pointerup", endDrag);
   svg.addEventListener("pointercancel", endDrag);
   svg.addEventListener("pointerleave", () => { if (!drag) highlight(pinned); });
-  svg.addEventListener("click", e => {
-    const n = netAt(e);
-    if (!drag && !e.target.closest(".part")) { pinned = n; highlight(n); }
+  svg.addEventListener("dblclick", e => {
+    const t = e.target.closest(".wires [data-net]");
+    if (t) renameNet(+t.dataset.net, { x: e.clientX, y: e.clientY });
   });
 
   svg.addEventListener("wheel", e => {
@@ -558,7 +822,14 @@
     netList.addEventListener("mouseleave", () => highlight(pinned));
     netList.addEventListener("click", e => {
       const li = e.target.closest("li");
-      if (li) { pinned = pinned === +li.dataset.net ? null : +li.dataset.net; highlight(pinned); }
+      if (!li) return;
+      if (e.target.closest(".del")) { deleteNet(+li.dataset.net); return; }
+      pinned = pinned === +li.dataset.net ? null : +li.dataset.net;
+      highlight(pinned);
+    });
+    netList.addEventListener("dblclick", e => {
+      const li = e.target.closest("li");
+      if (li && !e.target.closest(".del")) renameNet(+li.dataset.net, { x: e.clientX, y: e.clientY });
     });
   }
 
@@ -586,10 +857,12 @@
   async function save() {
     const svgText = exportSVG();
     try {
+      const changed = netsText() !== savedNets;
       const r = await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ layout, svg: svgText }) });
-      if (!r.ok) throw new Error(r.statusText);
-      const j = await r.json();
+        body: JSON.stringify({ layout, svg: svgText, nets: changed ? nets.map(n => ({ name: n.name, pins: n.pins })) : null }) });
+      const j = await r.json().catch(() => ({ error: r.statusText }));
+      if (!r.ok) throw new Error(j.error || r.statusText);
+      if (changed) savedNets = netsText();
       setDirty(false);
       toast("Saved " + j.saved.join(", "));
     } catch (err) {
@@ -619,7 +892,15 @@
     fit, save, download, auto: autoAll,
     rotate: () => rotate(90), mirror,
     labels: () => { showLabels = !showLabels; document.querySelector('[data-act="labels"]').classList.toggle("on", showLabels); draw(); },
-    undo: () => { if (undo.length) { layout = JSON.parse(undo.pop()); setDirty(true); draw(); } },
+    undo: () => {
+      if (!undo.length) return;
+      const u = JSON.parse(undo.pop());
+      layout = u.layout;
+      if (JSON.stringify(u.nets) !== JSON.stringify(nets)) { nets = u.nets; pinned = null; hl = null; netsChanged(); }
+      setDirty(true);
+      draw();
+      toast("Undone");
+    },
   };
   for (const b of document.querySelectorAll("[data-act]")) b.addEventListener("click", () => actions[b.dataset.act]());
   document.querySelector('[data-act="labels"]').classList.toggle("on", showLabels);
@@ -634,7 +915,13 @@
     else if (k === "m") mirror();
     else if (k === "f") fit();
     else if (k === "l") actions.labels();
-    else if (k === "escape") { selected = null; pinned = null; highlight(null); draw(); }
+    else if (k === "escape") { selected = null; pickedPin = null; pinned = null; highlight(null); draw(); }
+    else if (k === "delete" || k === "backspace") {
+      e.preventDefault();
+      if (pickedPin) disconnectPin(pickedPin);
+      else if (pinned !== null) deleteNet(pinned);
+      else toast("Click a pin or a wire first, then Delete");
+    }
     else if (selected && k.startsWith("arrow")) {
       e.preventDefault();
       const d = e.shiftKey ? 10 : 1;

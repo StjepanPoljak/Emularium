@@ -19,7 +19,7 @@
     <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
     <span class="sep"></span>
     <button data-act="download" title="Download the drawing as SVG">SVG</button>
-    <button data-act="save" class="primary" title="Write NAME.layout.toml and NAME.svg next to the board file (Ctrl+S)">Save</button>
+    <button data-act="save" class="primary" title="Write NAME.layout.toml and NAME.svg next to the board file, and changed connections into it (Ctrl+S)">Save</button>
   </nav>
 </header>
 <main>
@@ -35,16 +35,26 @@
     <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#dots)"/>
     <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#dots5)"/>
     <g id="world"></g>
+    <g id="overlay"></g>
   </svg>
   <aside>
     <h2>Nets</h2>
     <ul id="nets"></ul>
     <p class="help">Drag parts; wires follow. Hover a wire or a net to trace it, click to keep it lit.
       Wheel zooms, dragging the paper pans, arrow keys nudge.</p>
+    <p class="help">To connect, drag from a pin's end to another pin or a wire, or to the paper for
+      GND, +5V or a net by name. Click a pin or a wire, then <kbd>Delete</kbd>, to disconnect it;
+      double-click a wire or a net to rename it. Save writes the connections into the board file.</p>
   </aside>
 </main>
 <footer><span id="status"></span></footer>
 <div id="toast"></div>
+<form id="ask" hidden>
+  <label for="ask-name"></label>
+  <input id="ask-name" list="netnames" autocomplete="off" spellcheck="false">
+  <datalist id="netnames"></datalist>
+  <small><kbd>Enter</kbd> connects · <kbd>Esc</kbd> cancels</small>
+</form>
 <script>
 window.onerror = (msg, src, line) => {
   const s = document.getElementById("status");

@@ -61,8 +61,20 @@ tools/schematic.py boards/tinystories/tinystories.toml --svg  # just writes tiny
   to the window, L shows or hides net names, Ctrl+Z undoes. The wheel
   zooms; dragging the paper pans. Hovering a wire or a net in the list
   lights it up; clicking keeps it lit.
+- Connections are edited in the drawing. Drag from a pin's end to another
+  pin or onto a wire to connect it (two free pins make a new net, which
+  you name), or to the paper to tie it to GND, +5V or a net by name.
+  Click a pin and press Delete to disconnect it, or click a wire and press
+  Delete to remove its net (the × in the list does the same).
+  Double-click a wire or a net to rename it. Only pins the emulator models
+  can be wired: in `symbols.json` their type is `io`, and a test in
+  `src/parts.rs` checks those against the models. Shorting two rails is
+  refused.
 - Save (Ctrl+S) writes where the parts are to `NAME.layout.toml` and the
-  drawing to `NAME.svg`, next to the board file. Without a layout file the
+  drawing to `NAME.svg`, next to the board file, and changed connections
+  into the board file's `[nets]`: entries that didn't change keep their
+  text and comments, changed ranges are split or rewritten in place, new
+  nets go at the end. Without a layout file the
   parts are placed automatically: several arrangements are routed and the
   one with the shortest, straightest wires is kept (Auto-place does the
   same in the editor).

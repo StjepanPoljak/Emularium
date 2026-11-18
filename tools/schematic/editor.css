@@ -43,7 +43,7 @@ aside { border-left: 1px solid var(--line); background: var(--chrome); overflow:
 aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--sub); margin: 4px 0 8px; }
 #nets { list-style: none; padding: 0; margin: 0; }
 #nets li {
-  display: grid; grid-template-columns: 12px auto 1fr; gap: 8px; align-items: baseline;
+  display: grid; grid-template-columns: 12px auto 1fr 16px; gap: 8px; align-items: baseline;
   padding: 3px 6px; border-radius: 5px; cursor: pointer;
 }
 #nets li:hover, #nets li.on { background: #fff; }
@@ -52,6 +52,12 @@ aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; co
 .sw.pw { height: 8px; border-radius: 1px; }
 .nm { font: 600 11.5px var(--mono); white-space: nowrap; }
 .pp { font: 10.5px var(--mono); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#nets .del {
+  padding: 0; width: 16px; height: 16px; justify-content: center; border: none; background: none;
+  color: var(--sub); font-size: 14px; line-height: 1; visibility: hidden; align-self: center;
+}
+#nets li:hover .del { visibility: visible; }
+#nets .del:hover { color: #b91c1c; background: #fee2e2; }
 .help { color: var(--sub); font-size: 11.5px; margin-top: 14px; }
 footer {
   padding: 4px 14px; font-size: 11.5px; color: var(--sub); background: var(--chrome); border-top: 1px solid var(--line);
@@ -64,6 +70,17 @@ footer {
 }
 #toast.show { opacity: .94; transform: translate(-50%, 0); }
 #toast.bad { background: #991b1b; }
+#ask {
+  position: fixed; z-index: 10; display: grid; gap: 6px; padding: 10px 12px; width: 250px;
+  background: #fff; border: 1px solid #d8d3c8; border-radius: 8px; box-shadow: 0 6px 24px rgba(60, 40, 20, .18);
+}
+#ask[hidden] { display: none; }
+#ask label { font-weight: 600; font-size: 12px; }
+#ask input {
+  font: 13px var(--mono); padding: 5px 8px; border: 1px solid #d8d3c8; border-radius: 5px; outline: none;
+}
+#ask input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, .15); }
+#ask small { color: var(--sub); font-size: 11px; }
 
 /* The drawing. */
 .part { cursor: grab; }
@@ -76,6 +93,14 @@ footer {
 .hl .pin.on line { stroke-width: 3.2; }
 .hit { pointer-events: stroke; cursor: pointer; }
 .label { pointer-events: none; }
+.pin.io .grab { cursor: crosshair; }
+.pin:not(.io) .grab { cursor: not-allowed; }
+.ring { fill: none; stroke: #2563eb; stroke-width: 1.8; }
+#overlay { pointer-events: none; }
+.rubber { fill: none; stroke: #6b645c; stroke-width: 1.8; stroke-dasharray: 5 4; stroke-linejoin: round; }
+.rubber.hot { stroke: #2563eb; stroke-dasharray: none; stroke-width: 2.2; }
+.rubber-end { fill: #6b645c; }
+.rubber-end.hot { fill: none; stroke: #2563eb; stroke-width: 2; }
 
 @media (max-width: 760px) {
   main { grid-template-columns: 1fr; }

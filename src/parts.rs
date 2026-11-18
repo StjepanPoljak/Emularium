@@ -337,4 +337,38 @@ mod tests {
         assert_eq!(err("25LC1024 image=w.bin offset=1M"), "1M: expected a byte count like 131072 or 128K");
         assert_eq!(err("25LC1024 image=w.bin size=1"), "25LC1024 has no parameter size");
     }
+
+    // tools/schematic/symbols.json draws each model with its package's
+    // pins; the ones of type "io" are the ones the schematic editor lets
+    // you wire, so they must be the model's pins, with the same numbers.
+    #[test]
+    fn schematic_symbols_match_the_models() {
+        let json = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tools/schematic/symbols.json")).unwrap();
+        let model_re = regex::Regex::new(r#"(?m)^  "([^"_][^"]*)": \{"#).unwrap();
+        let pin_re = regex::Regex::new(r#""(\d+)": \["([^"]*)", "[^"]*", "(\w+)"\]"#).unwrap();
+        let starts: Vec<(usize, &str)> = model_re.captures_iter(&json)
+            .map(|c| (c.get(0).unwrap().start(), c.get(1).unwrap().as_str())).collect();
+        assert!(starts.len() >= 6);
+        for (i, (start, model)) in starts.iter().enumerate() {
+            let block = &json[*start..starts.get(i + 1).map_or(json.len(), |s| s.0)];
+            let io: HashMap<String, String> = pin_re.captures_iter(block).filter(|c| &c[3] == "io")
+                .map(|c| (c[1].to_string(), c[2].to_string())).collect();
+            let (pins, pinout): (Vec<&str>, Option<HashMap<String, String>>) = if *model == "PIC16F876" {
+                (PIC16F876::new().pins().to_vec(), None)
+            } else {
+                let built = PartSpec::parse(model).unwrap().build(Path::new(".")).unwrap();
+                (built.component.pins().to_vec(), built.pinout)
+            };
+            let mut drawn: Vec<&str> = io.values().map(String::as_str).collect();
+            let mut modelled = pins.clone();
+            drawn.sort_unstable();
+            modelled.sort_unstable();
+            assert_eq!(drawn, modelled, "{model}: io pins in symbols.json");
+            if let Some(pinout) = pinout {
+                for (number, name) in pinout {
+                    assert_eq!(io.get(&number), Some(&name), "{model} pin {number}");
+                }
+            }
+        }
+    }
 }

@@ -8,9 +8,12 @@ a net branches. Power nets (GND*, VSS, 0V, +*, VCC, VDD) get power symbols
 instead of wires.
 
 The editor runs in the browser: drag parts and the wires follow, R rotates,
-M mirrors, the wheel zooms, dragging the background pans. Save writes the
+M mirrors, the wheel zooms, dragging the background pans. Drag from a
+pin's end to another pin or a wire to connect it; Delete removes the
+selected pin's connection or the selected net. Save writes the
 parts' places to NAME.layout.toml and the drawing to NAME.svg, both next to
-the board file.
+the board file; connections drawn or deleted in the editor go into the
+board file's [nets].
 
 Usage: tools/schematic.py BOARD.toml            open the editor
        tools/schematic.py BOARD.toml --svg      just write NAME.svg (needs
@@ -51,6 +54,25 @@ def expand(text):
     return [f"{m[1]}{i}" for i in range(a, b + step, step)]
 
 
+def expand_entry(name, entries, where=""):
+    """One [nets] entry -> [(net name, [(ref, pin)])], ranges expanded."""
+    names = expand(name)
+    columns = []
+    for entry in entries:
+        ref, _, pin = entry.partition(".")
+        pins = expand(pin)
+        if len(names) > 1 and len(pins) == 1:
+            pins = pins * len(names)    # one pin on every net of the range
+        if len(pins) != len(names):
+            sys.exit(f"{where}net {name}: {entry} doesn't match the range")
+        columns.append([(ref, p) for p in pins])
+    return [(n, [col[i] for col in columns]) for i, n in enumerate(names)]
+
+
+def power_of(net):
+    return "gnd" if GND.match(net) else "vcc" if VCC.match(net) else None
+
+
 def load_board(path):
     with open(path, "rb") as f:
         board = tomllib.load(f)
@@ -61,21 +83,152 @@ def load_board(path):
                       "params": {k: v if isinstance(v, str) else json.dumps(v) for k, v in params.items()}}
     nets = []
     for name, entries in board.get("nets", {}).items():
-        names = expand(name)
-        columns = []
-        for entry in entries:
-            ref, _, pin = entry.partition(".")
-            pins = expand(pin)
-            if len(names) > 1 and len(pins) == 1:
-                pins = pins * len(names)    # one pin on every net of the range
-            if len(pins) != len(names):
-                sys.exit(f"{path}: net {name}: {entry} doesn't match the range")
-            columns.append([(ref, p) for p in pins])
-        for i, n in enumerate(names):
-            power = "gnd" if GND.match(n) else "vcc" if VCC.match(n) else None
-            nets.append({"name": n, "bus": name if len(names) > 1 else None, "power": power,
-                         "pins": [list(col[i]) for col in columns]})
+        members = expand_entry(name, entries, f"{path}: ")
+        for n, pins in members:
+            nets.append({"name": n, "bus": name if len(members) > 1 else None, "power": power_of(n),
+                         "pins": [list(p) for p in pins]})
     return {"name": board.get("name", os.path.basename(path)), "parts": parts, "nets": nets}
+
+
+# ---- writing nets back to the board file ------------------------------------
+
+def toml_key(name):
+    return name if re.match(r"^[A-Za-z0-9_-]+$", name) else json.dumps(name)
+
+
+def numbered(text):
+    m = re.match(r"^(.*?)(\d+)$", text)
+    return (m[1], int(m[2])) if m and not (len(m[2]) > 1 and m[2][0] == "0") else (None, None)
+
+
+def entry_lines(nets):
+    """[(name, [(ref, pin)])] -> TOML lines, runs of nets NAME0, NAME1, ...
+    whose pins count along with them written as one range entry."""
+    lines, i = [], 0
+    while i < len(nets):
+        j = i + 1
+        prefix, first = numbered(nets[i][0])
+        if prefix is not None:
+            step = None
+            while j < len(nets):
+                p, k = numbered(nets[j][0])
+                if p != prefix or len(nets[j][1]) != len(nets[i][1]):
+                    break
+                s = k - numbered(nets[j - 1][0])[1]
+                if s not in (1, -1) or (step is not None and s != step):
+                    break
+                if not all(column_steps(nets[i:j + 1], c) for c in range(len(nets[i][1]))):
+                    break
+                step, j = s, j + 1
+        run = nets[i:j]
+        if len(run) > 1:
+            last = numbered(run[-1][0])[1]
+            pins = []
+            for c in range(len(run[0][1])):
+                ref, pin = run[0][1][c]
+                if run[-1][1][c][1] == pin:
+                    pins.append(f"{ref}.{pin}")
+                else:
+                    pins.append(f"{ref}.{pin}..{numbered(run[-1][1][c][1])[1]}")
+            lines.append(f"{toml_key(f'{prefix}{first}..{last}')} = {json.dumps(pins)}")
+        else:
+            lines.append(f"{toml_key(run[0][0])} = {json.dumps([f'{r}.{p}' for r, p in run[0][1]])}")
+        i = j
+    return lines
+
+
+def column_steps(run, c):
+    """Whether pin column c of a run of nets is one pin throughout, or
+    counts by one (up or down) on one part."""
+    pins = [n[1][c] for n in run]
+    if any(r != pins[0][0] for r, _ in pins):
+        return False
+    if all(p == pins[0][1] for _, p in pins):
+        return True
+    nums = [numbered(p) for _, p in pins]
+    if any(pr is None or pr != nums[0][0] for pr, _ in nums):
+        return False
+    steps = {b[1] - a[1] for a, b in zip(nums, nums[1:])}
+    return steps in ({1}, {-1})
+
+
+def write_nets(board_path, nets):
+    """Rewrites the board file's [nets] for nets ([{name, pins}]): entries
+    that still hold keep their text and comments, changed ones are rewritten
+    in place, new nets go at the end of the section."""
+    with open(board_path) as f:
+        lines = f.read().split("\n")
+    want = {n["name"]: [tuple(p) for p in n["pins"]] for n in nets}
+    order = [n["name"] for n in nets]
+    try:
+        start = next(i for i, l in enumerate(lines) if re.match(r"^\s*\[nets\]\s*(#.*)?$", l))
+    except StopIteration:
+        while lines and lines[-1] == "":
+            lines.pop()
+        lines += ["", "[nets]"]
+        start = len(lines) - 1
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+
+    # The section's entries: (first line, last line, members).
+    entries, i = [], start + 1
+    while i < end:
+        if re.match(r"^\s*(#.*)?$", lines[i]):
+            i += 1
+            continue
+        j = i
+        while True:
+            text = "\n".join(lines[i:j + 1])
+            try:
+                (name, value), = tomllib.loads(text).items()
+                break
+            except tomllib.TOMLDecodeError:
+                j += 1
+                if j >= end:
+                    raise ValueError(f"{board_path}: can't read the [nets] entry at line {i + 1}")
+        entries.append((i, j, expand_entry(name, value, f"{board_path}: ")))
+        i = j + 1
+
+    olds = {m for _, _, members in entries for m, _ in members}
+    done, out, prev = set(), lines[:start + 1], start + 1
+    for first, last, members in entries:
+        out += lines[prev:first]
+        prev = last + 1
+        if all(m in want and want[m] == pins for m, pins in members):
+            out += lines[first:last + 1]
+            done.update(m for m, _ in members)
+            continue
+        keep = []
+        for m, pins in members:
+            if m in want and m not in done:
+                keep.append((m, want[m]))
+            elif m not in want:
+                # Renamed? Take a new net with these pins in its place.
+                new = next((n for n in order if n not in done and n not in [k for k, _ in keep]
+                            and set(want[n]) == set(pins) and n not in olds), None)
+                if new:
+                    keep.append((new, want[new]))
+        done.update(m for m, _ in keep)
+        out += entry_lines(keep)
+    tail = lines[prev:end]
+    while tail and tail[-1] == "":
+        tail.pop()
+    out += tail
+    out += entry_lines([(n, want[n]) for n in order if n not in done])
+    rest = lines[end:]
+    if rest and out[-1] != "":
+        out.append("")
+    out += rest
+    while out and out[-1] == "":
+        out.pop()
+    text = "\n".join(out) + "\n"
+    # Read it back: it must say exactly what the editor sent.
+    got = {}
+    for name, value in tomllib.loads(text).get("nets", {}).items():
+        got.update({n: list(pins) for n, pins in expand_entry(name, value)})
+    if got != {n: list(p) for n, p in want.items()}:
+        raise ValueError("the rewritten [nets] wouldn't match the drawing; board file left alone")
+    with open(board_path, "w") as f:
+        f.write(text)
 
 
 def layout_path(board_path):
@@ -161,6 +314,13 @@ def make_handler(board_path, svg_out, on_save):
                 return self.send(404, "not found", "text/plain")
             req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             saved = []
+            if req.get("nets") is not None:
+                try:
+                    write_nets(board_path, req["nets"])
+                except (ValueError, SystemExit, OSError) as e:
+                    print("couldn't write", board_path + ":", e, file=sys.stderr)
+                    return self.send(409, json.dumps({"error": str(e)}), "application/json")
+                saved.append(board_path)
             if req.get("layout"):
                 write_layout(board_path, req["layout"])
                 saved.append(layout_path(board_path))

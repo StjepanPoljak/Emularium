@@ -121,7 +121,7 @@ drawing only. Loading a `.kicad_sch` file needs `kicad-cli`; an exported
 [docs/BOARDS.md](docs/BOARDS.md) describes the whole format and every model's
 parameters and pins. `tools/schematic.py BOARD.toml` opens a board as a
 schematic in the browser: parts with their real pins, wires routed like PCB
-tracks, parts you can drag around.
+tracks, parts you can drag around and connections you can draw or delete.
 
 ### Firmware
 
